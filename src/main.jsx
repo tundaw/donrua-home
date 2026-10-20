@@ -5,7 +5,11 @@ import App from './App.jsx'
 
 const redirectedRoute = new URLSearchParams(window.location.search).get('__route')
 if (redirectedRoute) {
-  window.history.replaceState(null, '', `${import.meta.env.BASE_URL}${redirectedRoute}`)
+  window.history.replaceState(
+    null,
+    '',
+    `${import.meta.env.BASE_URL}${redirectedRoute.replace(/^\/+/, '')}`,
+  )
 }
 
 createRoot(document.getElementById('root')).render(
