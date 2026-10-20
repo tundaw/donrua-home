@@ -1,0 +1,148 @@
+.church-attendance {
+  color: #17231d;
+}
+
+.church-attendance__heading,
+.church-attendance__toolbar,
+.church-attendance__date-picker,
+.church-attendance__qr-action {
+  display: flex;
+  align-items: center;
+}
+
+.church-attendance__heading,
+.church-attendance__toolbar,
+.church-attendance__qr-action {
+  justify-content: space-between;
+}
+
+.church-attendance__heading {
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.church-attendance__heading .ant-typography {
+  margin: 0;
+}
+
+.church-attendance__heading h2.ant-typography {
+  margin: 6px 0;
+}
+
+.church-attendance__eyebrow {
+  color: #789183;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.church-attendance__church-icon {
+  color: #255e42;
+  font-size: 36px;
+}
+
+.church-attendance__card {
+  border-radius: 12px;
+}
+
+.church-attendance__toolbar {
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.church-attendance__date-picker {
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.church-attendance__summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.church-attendance__summary strong {
+  color: #255e42;
+  font-size: 20px;
+}
+
+.church-attendance__notice {
+  margin-bottom: 18px;
+}
+
+.church-attendance__daily-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.church-attendance__daily-counts .ant-tag {
+  margin-inline-end: 0;
+}
+
+.church-attendance__stats-card {
+  margin-top: 20px;
+  border-radius: 12px;
+}
+
+.church-attendance__reason {
+  margin-top: 4px;
+  color: #69776d;
+  font-size: 12px;
+}
+
+.church-attendance__qr-action {
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.church-attendance__member {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.church-attendance__loading {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+}
+
+@media (max-width: 700px) {
+  .church-attendance__heading,
+  .church-attendance__toolbar {
+    align-items: flex-start;
+  }
+
+  .church-attendance__toolbar {
+    flex-direction: column;
+  }
+
+  .church-attendance__summary {
+    align-items: flex-start;
+  }
+
+  .church-attendance__qr-action {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .church-attendance__qr-action .ant-btn {
+    width: 100%;
+  }
+}
+
+.church-attendance__qr-modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+  text-align: center;
+}
+
+.church-attendance__qr-countdown {
+  color: #255e42;
+  font-variant-numeric: tabular-nums;
+}

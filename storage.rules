@@ -1,0 +1,51 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userProfile() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function belongsToHouse(houseId) {
+      return isSignedIn() && userProfile().house_id == houseId;
+    }
+
+    function canManageHouse(houseId) {
+      return belongsToHouse(houseId)
+        && userProfile().role in ['admin', 'administrator', 'truongnha'];
+    }
+
+    function validUpload(maxSize) {
+      return request.resource == null || request.resource.size <= maxSize;
+    }
+
+    match /member-study-files/{houseId}/{memberId}/{fileName} {
+      allow read: if belongsToHouse(houseId);
+      allow write: if canManageHouse(houseId)
+        && validUpload(20 * 1024 * 1024);
+    }
+
+    match /house-schedules/{houseId}/{fileName} {
+      allow read: if belongsToHouse(houseId);
+      allow create, update: if belongsToHouse(houseId)
+        && request.resource.size <= 20 * 1024 * 1024;
+      allow delete: if canManageHouse(houseId);
+    }
+
+    match /home-leave-evidence/{houseId}/{leaveId}/{fileName} {
+      allow read: if belongsToHouse(houseId);
+      allow write: if canManageHouse(houseId)
+        && validUpload(10 * 1024 * 1024);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

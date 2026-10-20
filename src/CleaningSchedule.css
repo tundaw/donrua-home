@@ -1,0 +1,145 @@
+.cleaning-schedule {
+  color: #17231d;
+}
+
+.cleaning-schedule__heading,
+.cleaning-schedule__toolbar,
+.cleaning-schedule__month,
+.cleaning-schedule__form-actions,
+.cleaning-schedule__setting-row {
+  display: flex;
+  align-items: center;
+}
+
+.cleaning-schedule__heading,
+.cleaning-schedule__toolbar,
+.cleaning-schedule__setting-row {
+  justify-content: space-between;
+}
+
+.cleaning-schedule__heading {
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.cleaning-schedule__heading .ant-typography {
+  margin: 0;
+}
+
+.cleaning-schedule__heading h2.ant-typography {
+  margin: 6px 0;
+}
+
+.cleaning-schedule__eyebrow {
+  color: #789183;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.cleaning-schedule__card {
+  border-radius: 12px;
+}
+
+.cleaning-schedule__toolbar {
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.cleaning-schedule__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cleaning-schedule__month {
+  gap: 12px;
+}
+
+.cleaning-schedule__month .ant-typography {
+  min-width: 170px;
+  margin: 0;
+  text-align: center;
+}
+
+.cleaning-schedule__notice {
+  margin-bottom: 18px;
+}
+
+.cleaning-schedule__archived-tag {
+  margin-inline-end: 0;
+  margin-inline-start: 8px;
+}
+
+.cleaning-schedule__description {
+  display: block;
+  min-width: 300px;
+  white-space: pre-line;
+}
+
+.cleaning-schedule__table .ant-table-cell {
+  vertical-align: top;
+}
+
+.cleaning-schedule__table .ant-table-cell:first-child {
+  min-width: 180px;
+}
+
+.cleaning-schedule__loading {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+}
+
+.cleaning-schedule__form-actions {
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.cleaning-schedule__member-modal-footer,
+.cleaning-schedule__member-modal-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cleaning-schedule__member-modal-footer {
+  justify-content: space-between;
+}
+
+.cleaning-schedule__settings-list {
+  border-top: 1px solid #f0f0f0;
+}
+
+.cleaning-schedule__setting-row {
+  gap: 12px;
+  min-height: 48px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+@media (max-width: 700px) {
+  .cleaning-schedule__heading,
+  .cleaning-schedule__toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cleaning-schedule__toolbar,
+  .cleaning-schedule__toolbar > .ant-btn {
+    width: 100%;
+  }
+
+  .cleaning-schedule__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .cleaning-schedule__actions > * {
+    flex: 1;
+  }
+
+  .cleaning-schedule__month {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

@@ -1,0 +1,257 @@
+.meal-schedule {
+  color: #17231d;
+}
+
+.meal-schedule__heading,
+.meal-schedule__toolbar,
+.meal-schedule__week-navigation,
+.meal-schedule__actions,
+.meal-schedule__day-heading,
+.meal-schedule__shift-title,
+.meal-schedule__assigned,
+.meal-schedule__footer {
+  display: flex;
+  align-items: center;
+}
+
+.meal-schedule__heading,
+.meal-schedule__toolbar,
+.meal-schedule__footer {
+  justify-content: space-between;
+}
+
+.meal-schedule__balance-list,
+.meal-schedule__balance-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.meal-schedule__balance {
+  margin-top: 20px;
+  padding: 18px 20px;
+  border: 1px solid #e7ece7;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.meal-schedule__balance h5.ant-typography {
+  margin: 0 0 12px;
+}
+
+.meal-schedule__balance-list {
+  gap: 10px;
+}
+
+.meal-schedule__balance-item {
+  gap: 3px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #f0f2ef;
+}
+
+.meal-schedule__balance-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.meal-schedule__heading {
+  margin-bottom: 28px;
+}
+
+.meal-schedule__heading .ant-typography {
+  margin: 0;
+}
+
+.meal-schedule__heading h2.ant-typography {
+  margin: 8px 0 4px;
+}
+
+.meal-schedule__eyebrow {
+  color: #789183;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.meal-schedule__toolbar {
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.meal-schedule__week-navigation,
+.meal-schedule__actions {
+  gap: 10px;
+}
+
+.meal-schedule__calendar-scroll {
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.meal-schedule__calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 1190px;
+}
+
+.meal-schedule__week-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #43564a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.meal-schedule__week-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.meal-schedule__week-label span {
+  color: #87938a;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.meal-schedule__mandatory-cooking.ant-btn {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 2px solid #9a3412 !important;
+  border-radius: 9px;
+  background: #c2410c !important;
+  box-shadow: 0 3px 10px rgba(154, 52, 18, 0.28);
+  color: #fff !important;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.meal-schedule__mandatory-cooking.ant-btn:hover,
+.meal-schedule__mandatory-cooking.ant-btn:focus {
+  border-color: #7c2d12 !important;
+  background: #9a3412 !important;
+  color: #fff !important;
+  transform: translateY(-1px);
+}
+
+.meal-schedule__week-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.meal-schedule__day {
+  min-height: 370px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: #f0f3ec;
+}
+
+.meal-schedule__day:first-child {
+  background: #e8f0e1;
+}
+
+.meal-schedule__day-heading {
+  justify-content: space-between;
+  margin-bottom: 14px;
+  color: #708174;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.meal-schedule__day-heading strong {
+  color: #5d7765;
+  font-size: 20px;
+}
+
+.meal-schedule__shift {
+  margin-bottom: 12px;
+}
+
+.meal-schedule__shift-title {
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.meal-schedule__shift-title .ant-tag {
+  margin-inline-end: 0;
+  font-size: 10px;
+}
+
+.meal-schedule__slot {
+  min-height: 37px;
+  margin-bottom: 5px;
+}
+
+.meal-schedule__assigned {
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 2px 5px 2px 9px;
+  border-radius: 7px;
+  background: #fff;
+  color: #34443a;
+  font-size: 12px;
+}
+
+.meal-schedule__assigned span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-schedule__assigned .ant-btn {
+  flex: 0 0 auto;
+  color: #8b9690;
+}
+
+.meal-schedule__add-slot.ant-btn {
+  width: 100%;
+  height: 34px;
+  border-color: #d3ddd2;
+  color: #819083;
+  font-size: 11px;
+}
+
+.meal-schedule__footer {
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 12px;
+}
+
+@media (max-width: 800px) {
+  .meal-schedule__heading,
+  .meal-schedule__toolbar,
+  .meal-schedule__footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .meal-schedule__toolbar {
+    width: 100%;
+  }
+
+  .meal-schedule__week-navigation {
+    flex-wrap: wrap;
+  }
+
+  .meal-schedule__week-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .meal-schedule__mandatory-cooking.ant-btn {
+    width: 100%;
+  }
+
+  .meal-schedule__actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
