@@ -52,9 +52,9 @@ import {
   uploadBytesResumable,
 } from 'firebase/storage';
 import { auth, db, storage } from './firebase';
+import { deduplicateMemberProfiles } from './memberProfiles';
 
 const { Text, Title } = Typography;
-const ROLE_CAN_EDIT = new Set(['admin', 'administrator', 'truongnha']);
 function getFileContentType(fileName, contentType) {
   if (contentType && contentType !== 'application/octet-stream') return contentType;
   const extension = fileName?.split('.').pop()?.toLowerCase();
@@ -213,18 +213,10 @@ function getFirebaseSaveError(error, itemName) {
   }
 }
 
-function normalizeRole(role) {
-  return String(role || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z]/g, '');
-}
-
 export default function DataManagement() {
   const currentUser = useMemo(() => JSON.parse(localStorage.getItem('currentUser')) || {}, []);
   const houseId = currentUser.house_id || 'DON_RUA';
-  const canEdit = ROLE_CAN_EDIT.has(normalizeRole(currentUser.role));
+  const canEdit = Boolean(auth.currentUser?.uid);
   const [pdfRecords, setPdfRecords] = useState([]);
   const [pdfFile, setPdfFile] = useState(null);
   const [savingPdf, setSavingPdf] = useState(false);
@@ -277,7 +269,10 @@ export default function DataManagement() {
     );
     const unsubscribeMembers = onSnapshot(
       query(collection(db, 'users'), where('house_id', '==', houseId)),
-      (snapshot) => setMembers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
+      (snapshot) => {
+        const profiles = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+        setMembers(deduplicateMemberProfiles(profiles, currentUser.uid).members);
+      },
       (error) => {
         console.error('Không thể tải danh sách thành viên:', error);
         message.error('Không thể tải danh sách thành viên.');
@@ -289,7 +284,7 @@ export default function DataManagement() {
       unsubscribeLeave();
       unsubscribeMembers();
     };
-  }, [houseId]);
+  }, [currentUser.uid, houseId]);
 
   const uploadPdf = async () => {
     if (!pdfFile) {
@@ -352,7 +347,7 @@ export default function DataManagement() {
 
   const uploadMemberStudyFile = async (member, file) => {
     if (!canEdit) {
-      message.error('Chỉ admin hoặc trưởng nhà được cập nhật tệp lịch học.');
+      message.error('Vui lòng đăng nhập để cập nhật dữ liệu.');
       return Upload.LIST_IGNORE;
     }
     if (file.size > 20 * 1024 * 1024) {
@@ -795,7 +790,7 @@ export default function DataManagement() {
         <Text type="secondary">Tài liệu và lịch sinh hoạt</Text>
         <Title level={2} style={{ marginTop: 4 }}><CalendarOutlined /> Dữ liệu</Title>
       </div>
-      {!canEdit && <Alert showIcon type="info" message="Mọi thành viên trong nhà có thể cập nhật lịch Nhà dòng. Các mục lịch học và lịch về quê chỉ admin hoặc trưởng nhà được chỉnh sửa." style={{ marginBottom: 16 }} />}
+      {!canEdit && <Alert showIcon type="info" message="Vui lòng đăng nhập để cập nhật dữ liệu." style={{ marginBottom: 16 }} />}
       <Tabs
         items={[
           { key: 'house', label: 'Lịch Nhà dòng', children: pdfTab },

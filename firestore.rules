@@ -1,0 +1,335 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasProfile() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function sameHouse(houseId) {
+      return hasProfile() && userProfile().house_id == houseId;
+    }
+
+    function canManageHouse(houseId) {
+      return sameHouse(houseId)
+        && userProfile().role == 'truongnha';
+    }
+
+    function validMemberRole(role) {
+      return role in ['truongnha', 'phonha', 'thuquy', 'sinh_vien'];
+    }
+
+    function validInvitedProfile(userId) {
+      let invitePath = /databases/$(database)/documents/member_account_invites/$(request.resource.data.invite_id);
+      return signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasAll([
+          'uid', 'email', 'full_name', 'holy_name', 'role',
+          'house_id', 'invite_id', 'created_by', 'created_at'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'full_name', 'holy_name', 'role',
+          'house_id', 'invite_id', 'created_by', 'created_at'
+        ])
+        && exists(invitePath)
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email.lower()
+        && request.resource.data.email == get(invitePath).data.email
+        && request.resource.data.full_name == get(invitePath).data.full_name
+        && request.resource.data.holy_name == get(invitePath).data.holy_name
+        && request.resource.data.role == get(invitePath).data.role
+        && validMemberRole(request.resource.data.role)
+        && request.resource.data.house_id == get(invitePath).data.house_id
+        && request.resource.data.created_by == get(invitePath).data.invited_by
+        && request.resource.data.invite_id == get(invitePath).data.invite_id
+        && (!('used_by' in get(invitePath).data)
+          || get(invitePath).data.used_by == userId);
+    }
+
+    function validEmail(email) {
+      return email is string
+        && email.size() > 0
+        && email.size() <= 254
+        && email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$');
+    }
+
+    function validEmailChangeRequest(uid) {
+      let profilePath = /databases/$(database)/documents/users/$(uid);
+      return canManageHouse(request.resource.data.house_id)
+        && exists(profilePath)
+        && request.resource.data.keys().hasAll([
+          'uid', 'old_email', 'new_email', 'house_id',
+          'requested_by', 'requested_at'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid', 'old_email', 'new_email', 'house_id',
+          'requested_by', 'requested_at'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.house_id == get(profilePath).data.house_id
+        && request.resource.data.old_email == get(profilePath).data.email
+        && request.resource.data.requested_by == request.auth.uid
+        && validEmail(request.resource.data.old_email)
+        && validEmail(request.resource.data.new_email)
+        && request.resource.data.new_email != request.resource.data.old_email;
+    }
+
+    function memberCanApplyEmailChange(uid) {
+      let changePath = /databases/$(database)/documents/member_email_change_requests/$(uid);
+      return signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email'])
+        && exists(changePath)
+        && request.resource.data.email == request.auth.token.email.lower()
+        && request.resource.data.email == get(changePath).data.new_email
+        && resource.data.email == get(changePath).data.old_email
+        && resource.data.house_id == get(changePath).data.house_id;
+    }
+
+    match /users/{userId} {
+      allow get: if signedIn()
+        && (userId == request.auth.uid
+          || (hasProfile() && resource.data.house_id == userProfile().house_id));
+      allow list: if hasProfile()
+        && resource.data.house_id == userProfile().house_id;
+      allow create: if validInvitedProfile(userId);
+      allow update: if memberCanApplyEmailChange(userId)
+        || (
+          canManageHouse(resource.data.house_id)
+          && request.resource.data.house_id == resource.data.house_id
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['full_name', 'holy_name', 'role'])
+          && request.resource.data.full_name is string
+          && request.resource.data.full_name.size() > 0
+          && request.resource.data.full_name.size() <= 120
+          && request.resource.data.holy_name is string
+          && request.resource.data.holy_name.size() <= 80
+          && validMemberRole(request.resource.data.role)
+        );
+      allow delete: if false;
+    }
+
+    match /member_account_invites/{inviteId} {
+      allow get: if signedIn()
+        && (canManageHouse(resource.data.house_id)
+          || request.auth.token.email.lower() == resource.data.email);
+      allow list: if canManageHouse(resource.data.house_id)
+        || (signedIn()
+          && request.auth.token.email.lower() == resource.data.email);
+      allow create: if canManageHouse(request.resource.data.house_id)
+        && request.resource.data.keys().hasAll([
+          'invite_id', 'email', 'full_name', 'holy_name', 'role',
+          'house_id', 'invited_by', 'invited_at'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'invite_id', 'email', 'full_name', 'holy_name', 'role',
+          'house_id', 'invited_by', 'invited_at'
+        ])
+        && request.resource.data.invite_id == inviteId
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+        && request.resource.data.full_name is string
+        && request.resource.data.full_name.size() > 0
+        && request.resource.data.full_name.size() <= 120
+        && request.resource.data.holy_name is string
+        && request.resource.data.holy_name.size() <= 80
+        && request.resource.data.invited_by == request.auth.uid
+        && validMemberRole(request.resource.data.role);
+      allow update: if (
+        canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id
+        && request.resource.data.keys().hasAll([
+          'invite_id', 'email', 'full_name', 'holy_name', 'role',
+          'house_id', 'invited_by', 'invited_at'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'invite_id', 'email', 'full_name', 'holy_name', 'role',
+          'house_id', 'invited_by', 'invited_at'
+        ])
+        && request.resource.data.invite_id == inviteId
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+        && request.resource.data.full_name is string
+        && request.resource.data.full_name.size() > 0
+        && request.resource.data.full_name.size() <= 120
+        && request.resource.data.holy_name is string
+        && request.resource.data.holy_name.size() <= 80
+        && request.resource.data.invited_by == request.auth.uid
+        && validMemberRole(request.resource.data.role)
+      ) || (
+        signedIn()
+        && request.auth.token.email.lower() == resource.data.email
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used_by', 'used_at'])
+        && request.resource.data.used_by == request.auth.uid
+        && (!('used_by' in resource.data)
+          || resource.data.used_by == request.auth.uid)
+      );
+      allow delete: if canManageHouse(resource.data.house_id);
+    }
+
+    match /member_email_change_requests/{uid} {
+      allow get: if canManageHouse(resource.data.house_id)
+        || (signedIn() && request.auth.uid == uid);
+      allow list: if canManageHouse(resource.data.house_id);
+      allow create, update: if validEmailChangeRequest(uid);
+      allow delete: if canManageHouse(resource.data.house_id)
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.auth.token.email_verified == true
+          && request.auth.token.email.lower() == resource.data.new_email
+        );
+    }
+
+    match /meal_schedules/{scheduleId} {
+      allow get: if signedIn()
+        && (!exists(/databases/$(database)/documents/meal_schedules/$(scheduleId))
+          || sameHouse(resource.data.house_id));
+      allow list: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /schedules_cooking_excel/{scheduleId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /cleaning_positions/{positionId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id);
+      allow update: if canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if false;
+    }
+
+    match /cleaning_schedules/{scheduleId} {
+      allow get: if signedIn()
+        && (!exists(/databases/$(database)/documents/cleaning_schedules/$(scheduleId))
+          || sameHouse(resource.data.house_id));
+      allow list: if sameHouse(resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id);
+      allow update: if canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if canManageHouse(resource.data.house_id);
+    }
+
+    match /cleaning_schedule_locks/{lockId} {
+      allow get: if signedIn()
+        && (!exists(/databases/$(database)/documents/cleaning_schedule_locks/$(lockId))
+          || sameHouse(resource.data.house_id));
+      allow list: if sameHouse(resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id);
+      allow update: if canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if false;
+    }
+
+    match /schedules_board/{scheduleId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id);
+      allow update: if canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if canManageHouse(resource.data.house_id);
+    }
+
+    match /church_attendance/{attendanceId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id);
+      allow update: if canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if canManageHouse(resource.data.house_id);
+    }
+
+    match /church_attendance_qr/{sessionId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id);
+      allow update: if canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if canManageHouse(resource.data.house_id);
+    }
+
+    match /attendance_sessions/{sessionId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id);
+      allow update: if canManageHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if canManageHouse(resource.data.house_id);
+    }
+
+    match /attendance_logs/{logId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update, delete: if canManageHouse(resource.data.house_id);
+    }
+
+    match /house_schedule_pdfs/{documentId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /member_study_files/{memberId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /home_leaves/{leaveId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /house_pdf/{documentId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /class_schedules/{documentId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /home_trips/{documentId} {
+      allow read: if sameHouse(resource.data.house_id);
+      allow create: if sameHouse(request.resource.data.house_id);
+      allow update: if sameHouse(resource.data.house_id)
+        && request.resource.data.house_id == resource.data.house_id;
+      allow delete: if sameHouse(resource.data.house_id);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

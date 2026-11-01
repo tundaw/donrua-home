@@ -40,6 +40,8 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { canManageCleaning } from './permissions';
+import { canonicalizeMemberReferences, deduplicateMemberProfiles } from './memberProfiles';
 import './CleaningSchedule.css';
 
 const { Text, Title } = Typography;
@@ -102,6 +104,7 @@ function shuffle(items) {
 export default function CleaningSchedule() {
   const currentUser = JSON.parse(localStorage.getItem('currentUser')) || {};
   const houseId = currentUser.house_id || 'DON_RUA';
+  const canEditSchedule = canManageCleaning(currentUser.role);
   const [month, setMonth] = useState(() => {
     const currentMonth = dayjs().startOf('month');
     return currentMonth.isBefore(CLEANING_SCHEDULE_START_MONTH)
@@ -117,6 +120,7 @@ export default function CleaningSchedule() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingPosition, setEditingPosition] = useState(null);
   const [addingToPosition, setAddingToPosition] = useState(null);
+  const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
   const [selectedMemberId, setSelectedMemberId] = useState(undefined);
   const [form] = Form.useForm();
@@ -138,9 +142,14 @@ export default function CleaningSchedule() {
         getDocs(query(collection(db, 'cleaning_schedules'), where('house_id', '==', houseId))),
         getDoc(monthLockRef),
       ]);
-      setMembers(usersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+      const profiles = usersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+      const { members: nextMembers, idAliases } = deduplicateMemberProfiles(profiles, currentUser.uid);
+      setMembers(nextMembers);
       setPositions(positionsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-      setAssignments(assignmentsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+      setAssignments(canonicalizeMemberReferences(
+        assignmentsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+        idAliases,
+      ));
       setLockedMonths((previous) => {
         if (lockSnapshot.exists()) return { ...previous, [monthKey]: lockSnapshot.data() };
         const next = { ...previous };
@@ -153,7 +162,7 @@ export default function CleaningSchedule() {
     } finally {
       setLoading(false);
     }
-  }, [houseId, monthKey, monthLockRef]);
+  }, [currentUser.uid, houseId, monthKey, monthLockRef]);
 
   useEffect(() => {
     fetchSchedule();
@@ -418,6 +427,7 @@ export default function CleaningSchedule() {
         });
       });
       message.success(`Đã phân công ${member.full_name || member.holy_name || member.email} vào ${addingToPosition.name}.`);
+      setMemberModalOpen(false);
       setAddingToPosition(null);
       setSelectedMemberId(undefined);
       await fetchSchedule();
@@ -479,6 +489,7 @@ export default function CleaningSchedule() {
         });
       });
       message.success(`Đã đổi người trực thành ${member.full_name || member.holy_name || member.email}.`);
+      setMemberModalOpen(false);
       setAddingToPosition(null);
       setEditingAssignment(null);
       setSelectedMemberId(undefined);
@@ -583,17 +594,27 @@ export default function CleaningSchedule() {
 
   const openAddMember = (position) => {
     setAddingToPosition(position);
+    setMemberModalOpen(true);
+    setEditingAssignment(null);
+    setSelectedMemberId(undefined);
+  };
+
+  const openAddScheduleModal = () => {
+    setAddingToPosition(null);
+    setMemberModalOpen(true);
     setEditingAssignment(null);
     setSelectedMemberId(undefined);
   };
 
   const openEditMember = (position, assignment) => {
     setAddingToPosition(position);
+    setMemberModalOpen(true);
     setEditingAssignment(assignment);
     setSelectedMemberId(assignment.member_id);
   };
 
   const closeMemberModal = () => {
+    setMemberModalOpen(false);
     setAddingToPosition(null);
     setEditingAssignment(null);
     setSelectedMemberId(undefined);
@@ -605,6 +626,10 @@ export default function CleaningSchedule() {
       || (!assignedThisMonthMemberIds.has(member.id) && !previousMonthMemberIds.has(member.id))
     ))
     : availableMembers;
+  const positionsWithOpenSlots = activePositions.filter((position) => (
+    monthAssignments.filter((assignment) => assignment.position_id === position.id).length
+    < Number(position.capacity)
+  ));
 
   const schedulePositions = isMonthLocked && Array.isArray(lockedMonths[monthKey]?.positions)
     ? lockedMonths[monthKey].positions
@@ -638,9 +663,11 @@ export default function CleaningSchedule() {
             Bắt đầu từ 02/11/2026. Mỗi tháng đổi lượt; người đã trực tháng trước sẽ được ưu tiên nghỉ lượt này.
           </Text>
         </div>
-        <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} disabled={isMonthLocked}>
-          Quản lý vị trí
-        </Button>
+        {canEditSchedule && (
+          <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} disabled={isMonthLocked}>
+            Quản lý vị trí
+          </Button>
+        )}
       </div>
 
       <Card bordered={false} className="cleaning-schedule__card">
@@ -663,7 +690,14 @@ export default function CleaningSchedule() {
               onClick={() => setMonth((value) => value.add(1, 'month'))}
             />
           </div>
-          <div className="cleaning-schedule__actions">
+          {canEditSchedule && <div className="cleaning-schedule__actions">
+            <Button
+              icon={<PlusOutlined />}
+              onClick={openAddScheduleModal}
+              disabled={isMonthLocked || positionsWithOpenSlots.length === 0 || availableMembers.length === 0}
+            >
+              Thêm lịch
+            </Button>
             <Popconfirm
               title="Xếp lại lịch tháng này?"
               description="Lịch hiện tại của tháng này sẽ được thay thế."
@@ -694,11 +728,20 @@ export default function CleaningSchedule() {
                 Lưu
               </Button>
             </Popconfirm>
-          </div>
+          </div>}
         </div>
 
         {loading ? <div className="cleaning-schedule__loading"><Spin /></div> : (
           <>
+            {!canEditSchedule && (
+              <Alert
+                type="info"
+                showIcon
+                message="Bạn có quyền xem lịch trực vệ sinh."
+                description="Chỉ trưởng nhà mới được xếp lịch và chỉnh sửa phân công."
+                className="cleaning-schedule__notice"
+              />
+            )}
             {isMonthLocked && (
               <Alert
                 type="success"
@@ -718,14 +761,16 @@ export default function CleaningSchedule() {
               />
             )}
             {positionList.length === 0 ? (
-              <Empty description="Chưa có vị trí trực. Hãy thêm vị trí để bắt đầu.">
-                <Button
-                  icon={<PlusOutlined />}
-                  loading={saving}
-                  onClick={handleAddSamplePositions}
-                >
-                  Thêm 8 khu vực theo mẫu
-                </Button>
+              <Empty description="Chưa có vị trí trực.">
+                {canEditSchedule && (
+                  <Button
+                    icon={<PlusOutlined />}
+                    loading={saving}
+                    onClick={handleAddSamplePositions}
+                  >
+                    Thêm 8 khu vực theo mẫu
+                  </Button>
+                )}
               </Empty>
             ) : (
               <Table
@@ -751,7 +796,7 @@ export default function CleaningSchedule() {
                         {record.positionAssignments.length ? record.positionAssignments.map((assignment) => (
                           <div className="cleaning-schedule__assigned-member" key={assignment.id}>
                             <span>{assignment.member_name}</span>
-                            {record.active && !isMonthLocked && (
+                            {canEditSchedule && record.active && !isMonthLocked && (
                               <Button
                                 type="text"
                                 size="small"
@@ -762,7 +807,7 @@ export default function CleaningSchedule() {
                             )}
                           </div>
                         )) : <Text type="secondary">Chưa xếp lịch</Text>}
-                        {record.active && !isMonthLocked && record.assignedCount < Number(record.capacity) && (
+                        {canEditSchedule && record.active && !isMonthLocked && record.assignedCount < Number(record.capacity) && (
                           <Button
                             type="link"
                             size="small"
@@ -806,14 +851,14 @@ export default function CleaningSchedule() {
       <Modal
         title={addingToPosition
           ? `${editingAssignment ? 'Đổi người trực' : 'Thêm người'} · ${addingToPosition.name}`
-          : 'Thêm người'}
-        open={Boolean(addingToPosition)}
+          : 'Thêm lịch trực'}
+        open={memberModalOpen}
         onCancel={closeMemberModal}
         onOk={editingAssignment ? handleUpdateAssignedMember : handleAddMemberToPosition}
         okText={editingAssignment ? 'Lưu thay đổi' : 'Phân công'}
         cancelText="Hủy"
         confirmLoading={saving}
-        okButtonProps={{ disabled: !selectedMemberId }}
+        okButtonProps={{ disabled: !addingToPosition || !selectedMemberId }}
         footer={(_, { OkBtn, CancelBtn }) => (
           <div className="cleaning-schedule__member-modal-footer">
             {editingAssignment && !isMonthLocked ? (
@@ -859,6 +904,27 @@ export default function CleaningSchedule() {
               style={{ width: '100%', marginTop: 16 }}
             />
           </>
+        )}
+        {!addingToPosition && (
+          <Select
+            placeholder="Chọn vị trí còn chỗ"
+            value={undefined}
+            onChange={(positionId) => {
+              const position = positionsWithOpenSlots.find((item) => item.id === positionId);
+              if (position) setAddingToPosition(position);
+            }}
+            options={positionsWithOpenSlots.map((position) => {
+              const assignedCount = monthAssignments.filter(
+                (assignment) => assignment.position_id === position.id,
+              ).length;
+              return {
+                value: position.id,
+                label: `${position.name} (còn ${Number(position.capacity) - assignedCount} chỗ)`,
+              };
+            })}
+            notFoundContent="Không còn vị trí trống"
+            style={{ width: '100%', marginTop: 16 }}
+          />
         )}
       </Modal>
 
@@ -933,3 +999,4 @@ export default function CleaningSchedule() {
     </div>
   );
 }
+  

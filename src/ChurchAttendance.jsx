@@ -31,12 +31,13 @@ import {
   where,
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { canonicalizeMemberReferences, deduplicateMemberProfiles } from './memberProfiles';
 import './ChurchAttendance.css';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
 const WEEKDAYS = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-const QR_AUTHORIZED_ROLES = new Set(['admin', 'administrator', 'truongnha']);
+const QR_AUTHORIZED_ROLES = new Set(['truongnha']);
 const QR_VALIDITY_MS = 5 * 60 * 1000;
 
 function normalizeRole(role) {
@@ -89,6 +90,7 @@ export default function ChurchAttendance() {
   const houseId = currentUser.house_id || 'DON_RUA';
   const [selectedDate, setSelectedDate] = useState(getInitialAttendanceDate);
   const [members, setMembers] = useState([]);
+  const [memberIdAliases, setMemberIdAliases] = useState({});
   const [attendance, setAttendance] = useState({});
   const [monthAttendance, setMonthAttendance] = useState([]);
   const [absenceMember, setAbsenceMember] = useState(null);
@@ -151,19 +153,27 @@ export default function ChurchAttendance() {
         getDoc(qrSessionRef),
         uid ? getDoc(doc(db, 'users', uid)) : Promise.resolve(null),
       ]);
-      const nextMembers = membersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-        .sort((first, second) => (
-          (first.full_name || first.holy_name || '').localeCompare(
-            second.full_name || second.holy_name || '',
-            'vi',
-          )
-        ));
+      const profiles = membersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+      const { members: nextMembers, idAliases } = deduplicateMemberProfiles(profiles, uid);
       const nextAttendance = Object.fromEntries(
-        attendanceSnapshot.docs.map((item) => [item.data().member_id, { id: item.id, ...item.data() }]),
+        canonicalizeMemberReferences(
+          attendanceSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+          idAliases,
+        ).map((item) => [item.member_id, item]),
       );
-      const nextMonthAttendance = monthlyAttendanceSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+      const nextMonthAttendance = canonicalizeMemberReferences(
+        monthlyAttendanceSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+        idAliases,
+      );
+      nextMembers.sort((first, second) => (
+        (first.full_name || first.holy_name || '').localeCompare(
+          second.full_name || second.holy_name || '',
+          'vi',
+        )
+      ));
       const role = userSnapshot?.data()?.role || currentUser.role;
       setMembers(nextMembers);
+      setMemberIdAliases(idAliases);
       setAttendance(nextAttendance);
       setMonthAttendance(nextMonthAttendance);
       setQrSession(qrSnapshot.exists() ? qrSnapshot.data() : null);
@@ -190,7 +200,10 @@ export default function ChurchAttendance() {
     const unsubscribeAttendance = onSnapshot(
       attendanceQuery,
       (snapshot) => {
-        const monthRecords = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+        const monthRecords = canonicalizeMemberReferences(
+          snapshot.docs.map((item) => ({ id: item.id, ...item.data() })),
+          memberIdAliases,
+        );
         setMonthAttendance(monthRecords);
         setAttendance(Object.fromEntries(
           monthRecords
@@ -218,7 +231,7 @@ export default function ChurchAttendance() {
       unsubscribeAttendance();
       unsubscribeQr();
     };
-  }, [dateKey, houseId, monthEndKey, monthStartKey, qrSessionRef]);
+  }, [dateKey, houseId, memberIdAliases, monthEndKey, monthStartKey, qrSessionRef]);
 
   const presentCount = useMemo(
     () => members.filter((member) => attendance[member.id]?.attended === true).length,
@@ -297,7 +310,7 @@ export default function ChurchAttendance() {
 
   const saveAbsenceStatus = async () => {
     if (!canManageQr || !absenceMember) {
-      message.error('Chỉ admin hoặc trưởng nhà mới được cập nhật điểm danh.');
+      message.error('Chỉ trưởng nhà mới được cập nhật điểm danh.');
       return;
     }
     if (absenceStatus === 'absent_excused' && !absenceReason.trim()) {
@@ -336,7 +349,7 @@ export default function ChurchAttendance() {
   const createQrSession = useCallback(async ({ silent = false } = {}) => {
     if (savingQr) return;
     if (!canManageQr) {
-      if (!silent) message.error('Chỉ admin hoặc trưởng nhà mới được tạo mã QR điểm danh.');
+      if (!silent) message.error('Chỉ trưởng nhà mới được tạo mã QR điểm danh.');
       return;
     }
     if (selectedDate.day() === 0) {
@@ -388,7 +401,7 @@ export default function ChurchAttendance() {
 
   const openQrCode = () => {
     if (!canManageQr) {
-      message.error('Chỉ admin hoặc trưởng nhà mới được hiển thị mã QR điểm danh.');
+      message.error('Chỉ trưởng nhà mới được hiển thị mã QR điểm danh.');
       return;
     }
     if (qrSession && !qrExpired) setIsQrVisible(true);
@@ -444,7 +457,7 @@ export default function ChurchAttendance() {
           showIcon
           type="info"
           message="Điểm danh bằng điện thoại"
-          description="Admin hoặc trưởng nhà mở mã QR của ngày đã chọn. Người không quét trong ngày đã qua được tính vắng không phép; admin/trưởng nhà có thể cập nhật thành vắng có phép kèm lý do."
+          description="Trưởng nhà mở mã QR của ngày đã chọn. Người không quét trong ngày đã qua được tính vắng không phép; trưởng nhà có thể cập nhật thành vắng có phép kèm lý do."
           className="church-attendance__notice"
         />
 
@@ -468,7 +481,7 @@ export default function ChurchAttendance() {
             </div>
           ) : (
             <Text type="secondary">
-              Không có nút QR? Tài khoản cần có vai trò admin hoặc Trưởng nhà.
+              Không có nút QR? Tài khoản cần có vai trò Trưởng nhà.
             </Text>
           )}
           <Button

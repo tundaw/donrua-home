@@ -30,6 +30,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { canonicalizeMemberReferences, deduplicateMemberProfiles } from './memberProfiles';
 import './MealSchedule.css';
 
 const { Text, Title } = Typography;
@@ -90,9 +91,8 @@ function getFairAssignmentCount(assignments) {
   return Array.from(assignmentsByWeek.values()).reduce((total, weekAssignments) => {
     const shoppingCount = weekAssignments.filter((assignment) => assignment.type === 'shopping').length;
     const cookingCount = weekAssignments.length - shoppingCount;
-    const isShoppingException = weekAssignments.length === 3 && shoppingCount === 2 && cookingCount === 1;
-    const missingMandatoryCooking = shoppingCount === 2 && cookingCount === 0;
-    return total + weekAssignments.length - (isShoppingException || missingMandatoryCooking ? 1 : 0);
+    const countedAssignments = cookingCount + Math.max(0, shoppingCount - 1);
+    return total + countedAssignments;
   }, 0);
 }
 
@@ -152,8 +152,12 @@ export default function MealSchedule() {
         getDocs(query(collection(db, 'users'), where('house_id', '==', houseId))),
         getDocs(query(collection(db, 'meal_schedules'), where('house_id', '==', houseId))),
       ]);
-      const nextMembers = usersSnapshot.docs.map((memberDoc) => ({ id: memberDoc.id, ...memberDoc.data() }));
-      const nextAssignments = schedulesSnapshot.docs.map((scheduleDoc) => ({ id: scheduleDoc.id, ...scheduleDoc.data() }));
+      const profiles = usersSnapshot.docs.map((memberDoc) => ({ id: memberDoc.id, ...memberDoc.data() }));
+      const { members: nextMembers, idAliases } = deduplicateMemberProfiles(profiles, currentUser.uid);
+      const nextAssignments = canonicalizeMemberReferences(
+        schedulesSnapshot.docs.map((scheduleDoc) => ({ id: scheduleDoc.id, ...scheduleDoc.data() })),
+        idAliases,
+      );
       setMembers(nextMembers);
       setAssignments(nextAssignments);
       return { members: nextMembers, assignments: nextAssignments };
@@ -163,7 +167,7 @@ export default function MealSchedule() {
     } finally {
       setLoading(false);
     }
-  }, [houseId]);
+  }, [currentUser.uid, houseId]);
 
   useEffect(() => {
     fetchSchedule();
@@ -176,18 +180,6 @@ export default function MealSchedule() {
   const getAssignment = (dateKey, shiftKey, slot) => assignments.find(
     (assignment) => assignment.date === dateKey && assignment.type === shiftKey && assignment.slot === slot,
   );
-
-  const getAvailableCookingSlots = (date, shiftKey, schedules = assignments) => {
-    const shift = SHIFT_TYPES.find((item) => item.key === shiftKey);
-    if (!shift || shift.key === 'shopping') return [];
-    const dateKey = getDateKey(date);
-    return Array.from({ length: shift.slots }, (_, index) => index + 1)
-      .filter((slot) => !schedules.some((assignment) => (
-        assignment.date === dateKey
-        && assignment.type === shiftKey
-        && Number(assignment.slot) === slot
-      )));
-  };
 
   const currentCycleAssignments = assignments.filter(
     (assignment) => assignment.date >= cycleStartKey && assignment.date <= cycleEndKey,
@@ -214,6 +206,18 @@ export default function MealSchedule() {
     currentCycleAssignments.filter((assignment) => assignment.member_id === memberId),
   );
 
+  const getAvailableCookingSlots = (date, shiftKey, schedules = assignments) => {
+    const shift = SHIFT_TYPES.find((item) => item.key === shiftKey);
+    if (!shift || shift.key === 'shopping') return [];
+    const dateKey = getDateKey(date);
+    return Array.from({ length: shift.slots }, (_, index) => index + 1)
+      .filter((slot) => !schedules.some((assignment) => (
+        assignment.date === dateKey
+        && assignment.type === shiftKey
+        && Number(assignment.slot) === slot
+      )));
+  };
+
   const getExtraCookingCandidates = (week) => {
     const weekStartKey = getDateKey(week[0]);
     const weekEndKey = getDateKey(week[6]);
@@ -224,11 +228,9 @@ export default function MealSchedule() {
         && assignment.member_id === member.id
       ));
       const shoppingCount = memberWeekAssignments.filter((assignment) => assignment.type === 'shopping').length;
-      const cookingCount = memberWeekAssignments.filter((assignment) => assignment.type !== 'shopping').length;
+      const cookingCount = memberWeekAssignments.length - shoppingCount;
       return shoppingCount === 2
-        && cookingCount === 0
-        && memberWeekAssignments.length === 2
-        && registrationLimit(member.id) > currentMemberCount(member.id);
+        && cookingCount === 0;
     });
   };
 
@@ -291,11 +293,6 @@ export default function MealSchedule() {
       ));
       const allAssignments = schedulesSnapshot.docs
         .map((scheduleDoc) => scheduleDoc.data());
-      const memberCycleAssignments = allAssignments.filter((assignment) => (
-        assignment.date >= cycleStartKey
-        && assignment.date <= cycleEndKey
-        && assignment.member_id === member.id
-      ));
       const weekStart = getWeekStart(values.date.toDate());
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekEnd.getDate() + 6);
@@ -308,12 +305,6 @@ export default function MealSchedule() {
       const cookingCount = memberWeekAssignments.length - shoppingCount;
       const nextShoppingCount = shoppingCount + (shift.key === 'shopping' ? 1 : 0);
       const nextCookingCount = cookingCount + (shift.key === 'shopping' ? 0 : 1);
-      const nextWeekCount = memberWeekAssignments.length + 1;
-      const isShoppingException = (
-        nextWeekCount === 3
-        && nextShoppingCount === 2
-        && nextCookingCount === 1
-      );
 
       if (shift.key === 'shopping' && shoppingCount >= 2) {
         throw new Error('SHOPPING_LIMIT');
@@ -325,27 +316,6 @@ export default function MealSchedule() {
       )) {
         throw new Error('EXTRA_COOKING_NOT_ELIGIBLE');
       }
-      if (nextWeekCount > 2 && !(isExtraCooking && isShoppingException)) {
-        throw new Error('WEEKLY_LIMIT');
-      }
-      const completedMemberCount = allAssignments.filter((assignment) => (
-        assignment.date >= getDateKey(CYCLE_ANCHOR)
-        && assignment.date < cycleStartKey
-        && assignment.member_id === member.id
-      ));
-      const completedFairCount = getFairAssignmentCount(completedMemberCount);
-      const carryBalance = cycleNumber <= 0
-        ? 0
-        : (cycleNumber * (previousCycleQuotas.get(member.id) || 0)) - completedFairCount;
-      const memberCycleLimit = Math.max(0, (cycleQuotas.get(member.id) || 0) + carryBalance);
-      const nextCycleFairCount = getFairAssignmentCount([
-        ...memberCycleAssignments,
-        { date: dateKey, type: shift.key },
-      ]);
-      if (nextCycleFairCount > memberCycleLimit) {
-        throw new Error('CYCLE_LIMIT');
-      }
-
       await runTransaction(db, async (transaction) => {
         const slotSnapshot = await transaction.get(assignmentRef);
         if (slotSnapshot.exists()) {
@@ -387,10 +357,6 @@ export default function MealSchedule() {
         message.error('Ca này vừa được đăng ký. Vui lòng chọn ca khác.');
       } else if (error.message === 'SHOPPING_LIMIT') {
         message.error('Mỗi người chỉ đăng ký tối đa 2 ca đi chợ trong tuần.');
-      } else if (error.message === 'WEEKLY_LIMIT') {
-        message.error('Mỗi người tối đa 2 ca/tuần. Nếu nhận 2 ca đi chợ, phải đăng ký ca nấu bổ sung bằng nút của tuần.');
-      } else if (error.message === 'CYCLE_LIMIT') {
-        message.error('Người này đã đủ lượt trong chu kỳ 2 tuần.');
       } else if (error.message === 'EXTRA_COOKING_NOT_ELIGIBLE') {
         message.error('Ca nấu bổ sung chỉ dành cho người đã đăng ký đúng 2 ca đi chợ và chưa có ca nấu trong tuần.');
       } else if (error.code === 'permission-denied') {
@@ -444,9 +410,6 @@ export default function MealSchedule() {
       ? getAvailableCookingSlots(selectedDate.toDate(), selectedShift.key)
       : Array.from({ length: selectedShift.slots }, (_, index) => index + 1)
         .filter((slot) => !getAssignment(getDateKey(selectedDate.toDate()), selectedShift.key, slot))
-    : [];
-  const extraCookingCandidates = extraCookingWeek
-    ? getExtraCookingCandidates(extraCookingWeek)
     : [];
   const carryoverBalances = members.map((member) => ({
     member,
@@ -604,7 +567,7 @@ export default function MealSchedule() {
       </Spin>
 
       <footer className="meal-schedule__footer">
-        <Text type="secondary">Đổi lịch mỗi 2 tuần. Tối đa 2 ca/tuần; ngoại lệ 2 ca đi chợ + 1 ca nấu vẫn tính 2 lượt.</Text>
+        <Text type="secondary">Đổi lịch mỗi 2 tuần. Mỗi người không giới hạn ca nấu; các điều kiện ca đi chợ và chỉ tiêu chu kỳ vẫn giữ nguyên.</Text>
         <Text type="secondary">{currentCycleAssignments.length} ca đã được phân công trong chu kỳ này</Text>
       </footer>
 
@@ -712,7 +675,7 @@ export default function MealSchedule() {
                   modalMode !== 'extra-cooking'
                   || (extraCookingMemberId
                     ? member.id === extraCookingMemberId
-                    : extraCookingCandidates.some((candidate) => candidate.id === member.id))
+                    : getExtraCookingCandidates(extraCookingWeek).some((candidate) => candidate.id === member.id))
                 ))
                 .map((member) => ({
                   member,
@@ -721,8 +684,7 @@ export default function MealSchedule() {
                 .sort((first, second) => second.remaining - first.remaining)
                 .map(({ member, remaining }) => ({
                   value: member.id,
-                  label: `${member.full_name || member.holy_name || member.email} (${Math.max(0, remaining)} ca chu kỳ còn lại)`,
-                  disabled: remaining <= 0,
+                  label: `${member.full_name || member.holy_name || member.email} (${remaining >= 0 ? `${remaining} ca còn lại` : `dư ${Math.abs(remaining)} ca`})`,
                 }))}
               notFoundContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có thành viên" />}
             />

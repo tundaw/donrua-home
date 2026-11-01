@@ -16,18 +16,13 @@ service firebase.storage {
       return isSignedIn() && userProfile().house_id == houseId;
     }
 
-    function canManageHouse(houseId) {
-      return belongsToHouse(houseId)
-        && userProfile().role in ['admin', 'administrator', 'truongnha'];
-    }
-
     function validUpload(maxSize) {
       return request.resource == null || request.resource.size <= maxSize;
     }
 
     match /member-study-files/{houseId}/{memberId}/{fileName} {
       allow read: if belongsToHouse(houseId);
-      allow write: if canManageHouse(houseId)
+      allow write: if belongsToHouse(houseId)
         && validUpload(20 * 1024 * 1024);
     }
 
@@ -35,12 +30,12 @@ service firebase.storage {
       allow read: if belongsToHouse(houseId);
       allow create, update: if belongsToHouse(houseId)
         && request.resource.size <= 20 * 1024 * 1024;
-      allow delete: if canManageHouse(houseId);
+      allow delete: if belongsToHouse(houseId);
     }
 
     match /home-leave-evidence/{houseId}/{leaveId}/{fileName} {
       allow read: if belongsToHouse(houseId);
-      allow write: if canManageHouse(houseId)
+      allow write: if belongsToHouse(houseId)
         && validUpload(10 * 1024 * 1024);
     }
 

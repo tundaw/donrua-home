@@ -2,14 +2,91 @@ import React, { useState } from 'react';
 import { Form, Input, Button, message } from 'antd';
 import { UserOutlined, LockOutlined, HomeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import {
+  createUserWithEmailAndPassword,
+  deleteUser,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  verifyBeforeUpdateEmail,
+} from 'firebase/auth';
+import {
+  collection,
+  doc,
+  getDoc,
+  query,
+  runTransaction,
+  serverTimestamp,
+  where,
+} from 'firebase/firestore';
 import { auth, db } from './firebase';
+
+async function activateInvitedAccount(user) {
+  if (!user.email) {
+    throw new Error('Tài khoản Firebase chưa có email đăng nhập.');
+  }
+
+  const profileRef = doc(db, 'users', user.uid);
+  const email = user.email.trim().toLowerCase();
+  const invitesRef = collection(db, 'member_account_invites');
+  const emailInviteRef = doc(invitesRef, email);
+  let profileData;
+
+  await runTransaction(db, async (transaction) => {
+    const profileSnapshot = await transaction.get(profileRef);
+    if (profileSnapshot.exists()) {
+      profileData = profileSnapshot.data();
+      return;
+    }
+
+    let inviteSnapshot = await transaction.get(emailInviteRef);
+    if (!inviteSnapshot.exists()) {
+      const matchingInvites = await transaction.get(
+        query(invitesRef, where('email', '==', email)),
+      );
+      if (matchingInvites.empty) {
+        throw new Error('Email này chưa được Trưởng nhà mời tạo tài khoản.');
+      }
+      if (matchingInvites.size > 1) {
+        throw new Error('Có nhiều lời mời cho email này. Nhờ Trưởng nhà xóa lời mời trùng và tạo lại.');
+      }
+      [inviteSnapshot] = matchingInvites.docs;
+    }
+    const invitation = inviteSnapshot.data();
+    if (invitation.email !== email) {
+      throw new Error('Email đăng nhập không khớp với lời mời.');
+    }
+
+    profileData = {
+      uid: user.uid,
+      email: invitation.email,
+      full_name: invitation.full_name,
+      holy_name: invitation.holy_name || '',
+      role: invitation.role,
+      house_id: invitation.house_id,
+      invite_id: invitation.invite_id,
+      created_by: invitation.invited_by,
+      created_at: serverTimestamp(),
+    };
+    transaction.set(profileRef, profileData);
+    transaction.update(inviteSnapshot.ref, {
+      used_by: user.uid,
+      used_at: serverTimestamp(),
+    });
+  });
+
+  return {
+    ...profileData,
+    uid: user.uid,
+    created_at: new Date().toISOString(),
+  };
+}
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState('login');
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const navigate = useNavigate();
+  const [form] = Form.useForm();
 
   // Hiệu ứng 3D Tilt theo chuyển động chuột
   const handleMouseMove = (e) => {
@@ -22,32 +99,132 @@ export default function Login() {
 
   const handleLogin = async (values) => {
     setLoading(true);
+    let accountAuthenticated = false;
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
+      const email = values.email.trim().toLowerCase();
+      if (mode === 'register') {
+        let credential;
+        let createdNewAccount = false;
+        try {
+          credential = await createUserWithEmailAndPassword(auth, email, values.password);
+          createdNewAccount = true;
+        } catch (error) {
+          if (error.code !== 'auth/email-already-in-use') throw error;
+          credential = await signInWithEmailAndPassword(auth, email, values.password);
+        }
+        accountAuthenticated = true;
+        let userData;
+        try {
+          userData = await activateInvitedAccount(credential.user);
+        } catch (error) {
+          if (createdNewAccount) {
+            await deleteUser(credential.user);
+            accountAuthenticated = false;
+          }
+          throw error;
+        }
+        message.success(`Tài khoản đã tạo. Xin chào ${userData.full_name || email}!`);
+        localStorage.setItem('currentUser', JSON.stringify(userData));
+        navigate('/dashboard');
+        return;
+      }
+
+      const userCredential = await signInWithEmailAndPassword(auth, email, values.password);
+      accountAuthenticated = true;
+      const user = userCredential.user;
       const uid = userCredential.user.uid;
 
       const userDocRef = doc(db, 'users', uid);
       const userDoc = await getDoc(userDocRef);
 
+      let userData;
       if (userDoc.exists()) {
-        const userData = userDoc.data();
-        
-        if (userData.role !== 'sinh_vien') {
-          message.success(`Chào mừng ${userData.full_name} trở lại!`);
-          localStorage.setItem('currentUser', JSON.stringify(userData));
-          navigate('/dashboard');
-        } else {
-          message.error('Sinh viên vui lòng sử dụng Mobile App để đăng nhập!');
-          auth.signOut();
+        userData = { ...userDoc.data(), uid };
+        const emailChangeRef = doc(db, 'member_email_change_requests', uid);
+        const emailChangeSnapshot = await getDoc(emailChangeRef);
+        if (emailChangeSnapshot.exists()) {
+          const emailChange = emailChangeSnapshot.data();
+          const signedInEmail = user.email?.trim().toLowerCase();
+          if (signedInEmail === emailChange.old_email) {
+            await verifyBeforeUpdateEmail(user, emailChange.new_email);
+            await auth.signOut();
+            message.success(`Đã gửi liên kết xác minh đến ${emailChange.new_email}. Sau khi xác minh, hãy đăng nhập bằng email mới.`);
+            return;
+          }
+          if (signedInEmail !== emailChange.new_email || !user.emailVerified) {
+            await auth.signOut();
+            message.error('Email tài khoản không khớp yêu cầu đổi email hoặc chưa được xác minh.');
+            return;
+          }
+
+          await runTransaction(db, async (transaction) => {
+            const [profileSnapshot, requestSnapshot] = await Promise.all([
+              transaction.get(userDocRef),
+              transaction.get(emailChangeRef),
+            ]);
+            if (!profileSnapshot.exists() || !requestSnapshot.exists()) {
+              throw new Error('Yêu cầu đổi email không còn hiệu lực. Hãy đăng nhập lại.');
+            }
+            const latestRequest = requestSnapshot.data();
+            if (
+              latestRequest.old_email !== profileSnapshot.data().email
+              || latestRequest.new_email !== signedInEmail
+            ) {
+              throw new Error('Yêu cầu đổi email đã thay đổi. Hãy liên hệ Trưởng nhà.');
+            }
+            transaction.update(userDocRef, { email: signedInEmail });
+            transaction.delete(emailChangeRef);
+          });
+          userData.email = signedInEmail;
+          message.success('Đã xác nhận email đăng nhập mới.');
         }
       } else {
-        message.error('Tài khoản chưa được phân quyền trong hệ thống!');
+        userData = await activateInvitedAccount(user);
       }
+
+      if (!userData.house_id || !userData.role) {
+        await auth.signOut();
+        message.error('Tài khoản chưa được phân quyền trong hệ thống!');
+        return;
+      }
+      message.success(`Chào mừng ${userData.full_name || user.email} trở lại!`);
+      localStorage.setItem('currentUser', JSON.stringify(userData));
+      navigate('/dashboard');
     } catch (error) {
-      message.error('Sai email hoặc mật khẩu!');
-      console.error(error);
+      console.error('Không thể đăng nhập:', error);
+      if (accountAuthenticated) await auth.signOut();
+      if (error.code === 'auth/email-already-in-use') {
+        message.error('Email đã có tài khoản. Hãy đăng nhập hoặc dùng chức năng quên mật khẩu.');
+      } else if (error.code === 'auth/invalid-credential') {
+        message.error(mode === 'register'
+          ? 'Email này đã có tài khoản. Hãy đăng nhập hoặc chọn “Quên mật khẩu?” để đặt mật khẩu mới.'
+          : 'Sai email hoặc mật khẩu!');
+      } else if (error.code === 'permission-denied') {
+        message.error('Không tìm thấy lời mời cho email này hoặc Firestore Rules chưa được cập nhật.');
+      } else if (error.message.includes('mời')) {
+        message.error(error.message);
+      } else {
+        message.error(error.message || 'Không thể đăng nhập. Vui lòng thử lại.');
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  const handlePasswordReset = async () => {
+    const email = form.getFieldValue('email')?.trim().toLowerCase();
+    if (!email) {
+      message.warning('Nhập email đăng nhập trước khi đặt lại mật khẩu.');
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      message.success('Nếu email đã đăng ký, Firebase sẽ gửi liên kết đặt lại mật khẩu.');
+    } catch (error) {
+      console.error('Không thể gửi email đặt lại mật khẩu:', error);
+      message.error('Không thể gửi email đặt lại mật khẩu. Hãy kiểm tra email và thử lại.');
+    }
   };
 
   return (
@@ -193,10 +370,16 @@ export default function Login() {
         </div>
 
         {/* FORM ĐĂNG NHẬP */}
-        <Form name="login" onFinish={handleLogin} layout="vertical" className="custom-input">
+        <Form
+          form={form}
+          name="login"
+          onFinish={handleLogin}
+          layout="vertical"
+          className="custom-input"
+        >
           <Form.Item 
             name="email" 
-            rules={[{ required: true, message: 'Vui lòng nhập Email!' }]}
+            rules={[{ required: true, type: 'email', message: 'Vui lòng nhập email hợp lệ!' }]}
             style={{ marginBottom: 20 }}
           >
             <Input 
@@ -208,7 +391,12 @@ export default function Login() {
 
           <Form.Item 
             name="password" 
-            rules={[{ required: true, message: 'Vui lòng nhập Mật khẩu!' }]}
+            rules={[
+              { required: true, message: 'Vui lòng nhập mật khẩu!' },
+              ...(mode === 'register'
+                ? [{ min: 8, message: 'Mật khẩu cần ít nhất 8 ký tự.' }]
+                : []),
+            ]}
             style={{ marginBottom: 28 }}
           >
             <Input.Password 
@@ -226,10 +414,28 @@ export default function Login() {
               loading={loading}
               className="btn-3d-login"
             >
-              ĐĂNG NHẬP HỆ THỐNG
+              {mode === 'login' ? 'ĐĂNG NHẬP HỆ THỐNG' : 'TẠO TÀI KHOẢN THEO LỜI MỜI'}
             </Button>
           </Form.Item>
         </Form>
+        <div style={{ textAlign: 'center', marginTop: 8 }}>
+          <Button
+            type="link"
+            onClick={() => {
+              setMode((currentMode) => (currentMode === 'login' ? 'register' : 'login'));
+              form.resetFields(['password']);
+            }}
+          >
+            {mode === 'login'
+              ? 'Được Trưởng nhà mời? Tạo mật khẩu?'
+              : 'Đã có tài khoản? Đăng nhập'}
+          </Button>
+          {mode === 'login' && (
+            <Button type="link" onClick={handlePasswordReset}>
+              Quên mật khẩu?
+            </Button>
+          )}
+        </div>
 
         {/* CHÚ THÍCH BẢO MẬT BÊN DƯỚI */}
         <div style={{ 
