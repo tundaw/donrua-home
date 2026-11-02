@@ -246,6 +246,7 @@ export default function ChurchAttendance() {
       let status = 'pending';
       if (record?.attended === true) status = 'present';
       else if (record?.status === 'absent_excused') status = 'absent_excused';
+      else if (record?.status === 'pending') status = 'pending';
       else if (record?.status === 'absent_unexcused' || isPastDate) status = 'absent_unexcused';
       return { ...member, attendanceRecord: record, attendanceStatus: status };
     }),
@@ -321,7 +322,21 @@ export default function ChurchAttendance() {
     setSavingQr(true);
     try {
       const attendanceId = `${encodeURIComponent(houseId)}_${dateKey}_${encodeURIComponent(absenceMember.id)}`;
-      await setDoc(doc(db, 'church_attendance', attendanceId), {
+      const attendanceRef = doc(db, 'church_attendance', attendanceId);
+      if (absenceStatus === 'pending') {
+        await setDoc(attendanceRef, {
+          house_id: houseId,
+          date: dateKey,
+          member_id: absenceMember.id,
+          member_name: absenceMember.full_name || absenceMember.holy_name || absenceMember.email || 'Thành viên',
+          attended: false,
+          status: 'pending',
+          reason: '',
+          recorded_by: auth.currentUser?.uid || '',
+          updated_at: serverTimestamp(),
+        });
+      } else {
+        await setDoc(attendanceRef, {
         house_id: houseId,
         date: dateKey,
         member_id: absenceMember.id,
@@ -331,8 +346,11 @@ export default function ChurchAttendance() {
         reason: absenceStatus === 'absent_excused' ? absenceReason.trim() : '',
         recorded_by: auth.currentUser?.uid || '',
         updated_at: serverTimestamp(),
-      });
-      message.success(absenceStatus === 'present'
+        });
+      }
+      message.success(absenceStatus === 'pending'
+        ? 'Đã chuyển về chưa điểm danh.'
+        : absenceStatus === 'present'
         ? 'Đã cập nhật thành có mặt.'
         : absenceStatus === 'absent_excused'
           ? 'Đã lưu vắng có phép và lý do.'
@@ -647,6 +665,7 @@ export default function ChurchAttendance() {
           onChange={setAbsenceStatus}
           options={[
             { value: 'present', label: 'Có mặt' },
+            { value: 'pending', label: 'Chưa điểm danh' },
             { value: 'absent_unexcused', label: 'Vắng không phép' },
             { value: 'absent_excused', label: 'Vắng có phép' },
           ]}
