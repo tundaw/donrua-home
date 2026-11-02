@@ -90,7 +90,7 @@ export default function ChurchAttendanceScan() {
         );
         if (!member) throw new Error('MEMBER_NOT_IN_SESSION');
 
-        transaction.create(attendanceRef, {
+        transaction.set(attendanceRef, {
           house_id: houseId,
           date,
           member_id: selectedMember.id,
@@ -114,13 +114,16 @@ export default function ChurchAttendanceScan() {
       setCompleted(true);
     } catch (error) {
       console.error('Không thể ghi nhận điểm danh QR:', error);
+      const errorText = String(error?.message || '').toLowerCase();
+      const errorCode = String(error?.code || error?.name || '').toLowerCase();
       const errorMessage = error?.message === 'ALREADY_EXISTS'
         || error?.code === 'already-exists'
-        || String(error?.message || '').toLowerCase().includes('already exists')
+        || errorText.includes('already exists')
+        || errorText.includes('document already exists')
         ? 'Tên này đã được điểm danh rồi.'
         : error?.message === 'QR_USED_OR_EXPIRED'
             ? 'Mã QR vừa được sử dụng hoặc đã hết hạn. Vui lòng quét mã mới.'
-            : `Không thể ghi nhận điểm danh (${error?.code || 'unknown'}). Vui lòng thử lại.`;
+            : `Không thể ghi nhận điểm danh (${errorCode || errorText || 'unknown'}). Vui lòng thử lại.`;
       message.error(errorMessage);
     } finally {
       setSaving(false);

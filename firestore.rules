@@ -228,6 +228,18 @@ service cloud.firestore {
       allow create: if canManageHouse(request.resource.data.house_id);
       allow update: if canManageHouse(resource.data.house_id)
         && request.resource.data.house_id == resource.data.house_id;
+      allow update: if (
+        resource.data.house_id == request.resource.data.house_id
+        && resource.data.date == request.resource.data.date
+        && resource.data.member_id == request.resource.data.member_id
+        && request.resource.data.attended == true
+        && request.resource.data.status == 'present'
+        && request.resource.data.recorded_by == ''
+        && get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.active == true
+        && get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.token == request.resource.data.session_token
+        && request.resource.data.member_id in get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.member_ids
+        && request.time < get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.expires_at
+      );
       allow delete: if canManageHouse(resource.data.house_id);
     }
 
