@@ -120,7 +120,7 @@ export default function ChurchAttendanceScan() {
         ? 'Tên này đã được điểm danh rồi.'
         : error?.message === 'QR_USED_OR_EXPIRED'
             ? 'Mã QR vừa được sử dụng hoặc đã hết hạn. Vui lòng quét mã mới.'
-            : 'Không thể ghi nhận điểm danh. Vui lòng thử lại.';
+            : `Không thể ghi nhận điểm danh (${error?.code || 'unknown'}). Vui lòng thử lại.`;
       message.error(errorMessage);
     } finally {
       setSaving(false);

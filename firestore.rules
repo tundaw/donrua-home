@@ -297,8 +297,7 @@ service cloud.firestore {
           && request.resource.data.token != resource.data.token
           && request.resource.data.token_version == resource.data.token_version + 1
           && request.resource.data.scan_count == resource.data.scan_count + 1
-          && request.resource.data.member_ids == resource.data.member_ids
-          && request.resource.data.members == resource.data.members
+          && request.resource.data.active == resource.data.active
           && request.resource.data.expires_at == resource.data.expires_at
         );
       allow delete: if canManageHouse(resource.data.house_id);
