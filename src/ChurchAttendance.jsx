@@ -246,7 +246,6 @@ export default function ChurchAttendance() {
       let status = 'pending';
       if (record?.attended === true) status = 'present';
       else if (record?.status === 'absent_excused') status = 'absent_excused';
-      else if (record?.status === 'pending') status = 'pending';
       else if (record?.status === 'absent_unexcused' || isPastDate) status = 'absent_unexcused';
       return { ...member, attendanceRecord: record, attendanceStatus: status };
     }),
