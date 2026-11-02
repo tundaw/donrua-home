@@ -32,10 +32,8 @@ exports.recordChurchAttendanceScan = onCall(async (request) => {
   );
 
   await db.runTransaction(async (transaction) => {
-    const [sessionSnapshot, attendanceSnapshot] = await Promise.all([
-      transaction.get(sessionRef),
-      transaction.get(attendanceRef),
-    ]);
+    const sessionSnapshot = await transaction.get(sessionRef);
+    const attendanceSnapshot = await transaction.get(attendanceRef);
     if (!sessionSnapshot.exists) {
       throw new HttpsError('not-found', 'Phiên QR không tồn tại.');
     }

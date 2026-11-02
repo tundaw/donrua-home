@@ -83,9 +83,14 @@ export default function ChurchAttendanceScan() {
       setCompleted(true);
     } catch (error) {
       console.error('Không thể ghi nhận điểm danh QR:', error);
-      message.error(error?.code === 'functions/already-exists'
+      const errorMessage = error?.code === 'functions/already-exists'
         ? 'Tên này đã được điểm danh rồi.'
-        : 'Mã QR vừa được sử dụng hoặc đã hết hạn. Vui lòng quét mã mới.');
+        : error?.code === 'functions/not-found'
+          ? 'Không tìm thấy phiên QR. Vui lòng quét mã mới.'
+          : error?.code === 'functions/failed-precondition'
+            ? 'Mã QR vừa được sử dụng hoặc đã hết hạn. Vui lòng quét mã mới.'
+            : 'Không thể ghi nhận điểm danh. Vui lòng thử lại.';
+      message.error(errorMessage);
     } finally {
       setSaving(false);
     }
