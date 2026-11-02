@@ -93,6 +93,7 @@ export default function ChurchAttendance() {
   const [memberIdAliases, setMemberIdAliases] = useState({});
   const [attendance, setAttendance] = useState({});
   const [monthAttendance, setMonthAttendance] = useState([]);
+  const [homeLeaves, setHomeLeaves] = useState([]);
   const [absenceMember, setAbsenceMember] = useState(null);
   const [absenceStatus, setAbsenceStatus] = useState('absent_unexcused');
   const [absenceReason, setAbsenceReason] = useState('');
@@ -143,7 +144,11 @@ export default function ChurchAttendance() {
         where('date', '>=', monthStartKey),
         where('date', '<=', monthEndKey),
       );
-      const [membersSnapshot, attendanceSnapshot, monthlyAttendanceSnapshot, qrSnapshot, userSnapshot] = await Promise.all([
+      const homeLeavesQuery = query(
+        collection(db, 'home_leaves'),
+        where('house_id', '==', houseId),
+      );
+      const [membersSnapshot, attendanceSnapshot, monthlyAttendanceSnapshot, qrSnapshot, userSnapshot, homeLeavesSnapshot] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('house_id', '==', houseId))),
         getDocs(query(
           collection(db, 'church_attendance'),
@@ -153,6 +158,7 @@ export default function ChurchAttendance() {
         getDocs(monthlyAttendanceQuery),
         getDoc(qrSessionRef),
         uid ? getDoc(doc(db, 'users', uid)) : Promise.resolve(null),
+        getDocs(homeLeavesQuery),
       ]);
       const profiles = membersSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
       const { members: nextMembers, idAliases } = deduplicateMemberProfiles(profiles, uid);
@@ -177,6 +183,7 @@ export default function ChurchAttendance() {
       setMemberIdAliases(idAliases);
       setAttendance(nextAttendance);
       setMonthAttendance(nextMonthAttendance);
+      setHomeLeaves(homeLeavesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
       setQrSession(qrSnapshot.exists() ? qrSnapshot.data() : null);
       setCanManageQr(isQrAuthorizedRole(role));
     } catch (error) {
@@ -227,10 +234,21 @@ export default function ChurchAttendance() {
         message.error('Không thể cập nhật mã QR trực tiếp.');
       },
     );
+    const unsubscribeHomeLeaves = onSnapshot(
+      query(collection(db, 'home_leaves'), where('house_id', '==', houseId)),
+      (snapshot) => {
+        setHomeLeaves(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+      },
+      (error) => {
+        console.error('Không thể đồng bộ lịch về quê:', error);
+        message.error('Không thể cập nhật lịch về quê.');
+      },
+    );
 
     return () => {
       unsubscribeAttendance();
       unsubscribeQr();
+      unsubscribeHomeLeaves();
     };
   }, [dateKey, houseId, memberIdAliases, monthEndKey, monthStartKey, qrSessionRef]);
 
@@ -242,14 +260,26 @@ export default function ChurchAttendance() {
   const presentRecords = useMemo(
     () => members.map((member) => {
       const record = attendance[member.id];
+      const homeLeave = homeLeaves.find((leave) => (
+        leave.member_id === member.id
+        && leave.departure_date <= dateKey
+        && leave.return_date >= dateKey
+      ));
       const isPastDate = dateKey < dayjs().format('YYYY-MM-DD');
       let status = 'pending';
       if (record?.attended === true) status = 'present';
+      else if (homeLeave) status = 'absent_excused';
       else if (record?.status === 'absent_excused') status = 'absent_excused';
       else if (record?.status === 'absent_unexcused' || isPastDate) status = 'absent_unexcused';
-      return { ...member, attendanceRecord: record, attendanceStatus: status };
+      return {
+        ...member,
+        attendanceRecord: homeLeave && record?.attended !== true
+          ? { ...record, reason: 'Về quê' }
+          : record,
+        attendanceStatus: status,
+      };
     }),
-    [attendance, dateKey, members],
+    [attendance, dateKey, homeLeaves, members],
   );
 
   const dailyCounts = useMemo(() => {
@@ -296,9 +326,28 @@ export default function ChurchAttendance() {
           .filter((record) => record.status === 'absent_excused')
           .map((record) => record.date),
       );
+      homeLeaves
+        .filter((leave) => leave.member_id === member.id)
+        .forEach((leave) => {
+          for (
+            let leaveDate = dayjs(leave.departure_date);
+            !leaveDate.isAfter(dayjs(leave.return_date)) && leaveDate.format('YYYY-MM-DD') < todayKey;
+            leaveDate = leaveDate.add(1, 'day')
+          ) {
+            const leaveDateKey = leaveDate.format('YYYY-MM-DD');
+            if (
+              leaveDate.day() !== 0
+              && leaveDateKey >= monthStartKey
+              && leaveDateKey <= monthEndKey
+              && !presentDates.has(leaveDateKey)
+            ) {
+              excusedDates.add(leaveDateKey);
+            }
+          }
+        });
       const unexcusedDates = new Set(
         records
-          .filter((record) => record.status === 'absent_unexcused')
+          .filter((record) => record.status === 'absent_unexcused' && !excusedDates.has(record.date))
           .map((record) => record.date),
       );
       return {
@@ -315,7 +364,7 @@ export default function ChurchAttendance() {
         ]).size,
       };
     });
-  }, [members, monthAttendance, monthEndKey, monthStartKey, selectedDate]);
+  }, [homeLeaves, members, monthAttendance, monthEndKey, monthStartKey, selectedDate]);
 
   const saveAbsenceStatus = async () => {
     if (!canManageQr || !absenceMember) {
