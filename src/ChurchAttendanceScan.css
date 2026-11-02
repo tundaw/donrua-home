@@ -1,0 +1,67 @@
+.church-attendance-scan {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #f1f6f3;
+}
+
+.church-attendance-scan__card {
+  width: min(100%, 520px);
+  border-radius: 18px;
+  padding: 8px;
+}
+
+.church-attendance-scan__brand {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 20px;
+  color: #255e42;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.church-attendance-scan__card h2 {
+  margin: 0 0 4px;
+}
+
+.church-attendance-scan__notice {
+  margin: 24px 0 12px;
+}
+
+.church-attendance-scan__members {
+  margin-bottom: 16px;
+}
+
+.church-attendance-scan__members .ant-list-item {
+  cursor: pointer;
+  padding: 14px 12px;
+}
+
+.church-attendance-scan__members .ant-list-item.is-selected {
+  background: #edf7f0;
+}
+
+.church-attendance-scan__loading {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+}
+
+.church-attendance-scan__success {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 64px 8px;
+  text-align: center;
+  color: #255e42;
+}
+
+.church-attendance-scan__success > .anticon {
+  font-size: 56px;
+}
+
+.church-attendance-scan__success h3 {
+  margin: 8px 0 0;
+}

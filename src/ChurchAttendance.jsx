@@ -116,13 +116,14 @@ export default function ChurchAttendance() {
   const qrExpired = Boolean(qrSession) && qrTimeRemaining === 0;
   const qrPayload = qrSession
     && !qrExpired
-    ? JSON.stringify({
-      type: 'church-attendance',
-      houseId,
-      date: dateKey,
-      token: qrSession.token,
-      tokenVersion: qrSession.token_version || 1,
-    })
+    ? (() => {
+      const scanUrl = new URL('attendance/scan', window.location.origin + import.meta.env.BASE_URL);
+      scanUrl.searchParams.set('house', houseId);
+      scanUrl.searchParams.set('date', dateKey);
+      scanUrl.searchParams.set('token', qrSession.token);
+      scanUrl.searchParams.set('tokenVersion', String(qrSession.token_version || 1));
+      return scanUrl.toString();
+    })()
     : '';
 
   useEffect(() => {
@@ -366,6 +367,12 @@ export default function ChurchAttendance() {
         active: true,
         token_version: (qrSession?.token_version || 0) + 1,
         scan_count: qrSession?.scan_count || 0,
+        members: members.map((member) => ({
+          id: member.id,
+          full_name: member.full_name || '',
+          holy_name: member.holy_name || '',
+        })),
+        member_ids: members.map((member) => member.id),
         expires_at: Timestamp.fromMillis(Date.now() + QR_VALIDITY_MS),
         created_by: auth.currentUser?.uid || '',
         created_at: serverTimestamp(),
@@ -383,7 +390,7 @@ export default function ChurchAttendance() {
     } finally {
       setSavingQr(false);
     }
-  }, [canManageQr, dateKey, houseId, qrSession, qrSessionRef, savingQr, selectedDate, weekday]);
+  }, [canManageQr, dateKey, houseId, members, qrSession, qrSessionRef, savingQr, selectedDate, weekday]);
 
   useEffect(() => {
     if (

@@ -259,7 +259,11 @@ service cloud.firestore {
     }
 
     match /church_attendance_qr/{sessionId} {
-      allow read: if sameHouse(resource.data.house_id);
+      allow read: if sameHouse(resource.data.house_id)
+        || (
+          resource.data.active == true
+          && request.time < resource.data.expires_at
+        );
       allow create: if canManageHouse(request.resource.data.house_id);
       allow update: if canManageHouse(resource.data.house_id)
         && request.resource.data.house_id == resource.data.house_id;

@@ -2,12 +2,89 @@ const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
+const crypto = require('crypto');
 
 initializeApp();
 
 const auth = getAuth();
 const db = getFirestore();
 const ACCOUNT_ROLES = new Set(['phonha', 'thuquy', 'sinh_vien', 'truongnha']);
+
+function createAttendanceToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+exports.recordChurchAttendanceScan = onCall(async (request) => {
+  const data = request.data || {};
+  const houseId = String(data.house_id || '');
+  const date = String(data.date || '');
+  const token = String(data.token || '');
+  const memberId = String(data.member_id || '');
+  const sessionId = `${encodeURIComponent(houseId)}_${date}`;
+
+  if (!houseId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !token || !memberId) {
+    throw new HttpsError('invalid-argument', 'Thông tin điểm danh không hợp lệ.');
+  }
+
+  const sessionRef = db.collection('church_attendance_qr').doc(sessionId);
+  const attendanceRef = db.collection('church_attendance').doc(
+    `${encodeURIComponent(houseId)}_${date}_${encodeURIComponent(memberId)}`,
+  );
+
+  await db.runTransaction(async (transaction) => {
+    const [sessionSnapshot, attendanceSnapshot] = await Promise.all([
+      transaction.get(sessionRef),
+      transaction.get(attendanceRef),
+    ]);
+    if (!sessionSnapshot.exists) {
+      throw new HttpsError('not-found', 'Phiên QR không tồn tại.');
+    }
+
+    const session = sessionSnapshot.data();
+    const expiresAt = session.expires_at?.toMillis
+      ? session.expires_at.toMillis()
+      : 0;
+    const validMember = Array.isArray(session.member_ids)
+      && session.member_ids.includes(memberId);
+    if (
+      session.active !== true
+      || session.house_id !== houseId
+      || session.date !== date
+      || session.token !== token
+      || expiresAt <= Date.now()
+      || !validMember
+    ) {
+      throw new HttpsError('failed-precondition', 'Mã QR đã được sử dụng hoặc hết hạn.');
+    }
+    if (attendanceSnapshot.exists && attendanceSnapshot.data().attended === true) {
+      throw new HttpsError('already-exists', 'Thành viên này đã được điểm danh.');
+    }
+
+    const member = (session.members || []).find((item) => item.id === memberId) || {};
+    transaction.set(attendanceRef, {
+      house_id: houseId,
+      date,
+      member_id: memberId,
+      member_name: member.full_name || member.holy_name || 'Thành viên',
+      attended: true,
+      status: 'present',
+      reason: '',
+      session_id: sessionId,
+      session_token: token,
+      recorded_by: '',
+      updated_at: FieldValue.serverTimestamp(),
+    });
+    transaction.update(sessionRef, {
+      token: createAttendanceToken(),
+      token_version: (session.token_version || 0) + 1,
+      scan_count: (session.scan_count || 0) + 1,
+      last_scanned_member_name: member.full_name || member.holy_name || 'Thành viên',
+      last_scanned_at: FieldValue.serverTimestamp(),
+    });
+  });
+
+  return { success: true };
+});
 
 async function requireHouseManager(request) {
   if (!request.auth) {
@@ -93,6 +170,7 @@ exports.createMemberAccount = onCall(async (request) => {
         password,
         displayName: memberData.fullName,
       });
+
     } catch (error) {
       if (error instanceof HttpsError) throw error;
       if (error.code !== 'auth/user-not-found') throw error;
