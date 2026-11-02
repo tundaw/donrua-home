@@ -82,19 +82,15 @@ export default function ChurchAttendanceScan() {
       const nextToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
       await runTransaction(db, async (transaction) => {
         const sessionSnapshot = await transaction.get(sessionRef);
-        const attendanceSnapshot = await transaction.get(attendanceRef);
         if (!sessionSnapshot.exists() || sessionSnapshot.data().token !== token) {
           throw new Error('QR_USED_OR_EXPIRED');
-        }
-        if (attendanceSnapshot.exists() && attendanceSnapshot.data().attended === true) {
-          throw new Error('MEMBER_ALREADY_PRESENT');
         }
         const member = (sessionSnapshot.data().members || []).find(
           (item) => item.id === selectedMember.id,
         );
         if (!member) throw new Error('MEMBER_NOT_IN_SESSION');
 
-        transaction.set(attendanceRef, {
+        transaction.create(attendanceRef, {
           house_id: houseId,
           date,
           member_id: selectedMember.id,
@@ -118,7 +114,9 @@ export default function ChurchAttendanceScan() {
       setCompleted(true);
     } catch (error) {
       console.error('Không thể ghi nhận điểm danh QR:', error);
-      const errorMessage = error?.message === 'MEMBER_ALREADY_PRESENT'
+      const errorMessage = error?.message === 'ALREADY_EXISTS'
+        || error?.code === 'already-exists'
+        || String(error?.message || '').toLowerCase().includes('already exists')
         ? 'Tên này đã được điểm danh rồi.'
         : error?.message === 'QR_USED_OR_EXPIRED'
             ? 'Mã QR vừa được sử dụng hoặc đã hết hạn. Vui lòng quét mã mới.'
