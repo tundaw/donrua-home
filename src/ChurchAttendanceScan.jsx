@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Empty, List, Spin, Tag, Typography, message } from 'antd';
 import { CheckCircleOutlined, UserOutlined } from '@ant-design/icons';
-import { doc, getDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
+import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import dayjs from 'dayjs';
-import { db, functions } from './firebase';
+import { db } from './firebase';
 import './ChurchAttendanceScan.css';
 
 const { Text, Title } = Typography;
@@ -74,20 +73,54 @@ export default function ChurchAttendanceScan() {
     if (!selectedMember || !isValid) return;
     setSaving(true);
     try {
-      await httpsCallable(functions, 'recordChurchAttendanceScan')({
-        house_id: houseId,
-        date,
-        token,
-        member_id: selectedMember.id,
+      const sessionRef = doc(db, 'church_attendance_qr', getSessionId(houseId, date));
+      const attendanceRef = doc(
+        db,
+        'church_attendance',
+        `${encodeURIComponent(houseId)}_${date}_${encodeURIComponent(selectedMember.id)}`,
+      );
+      const nextToken = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+      await runTransaction(db, async (transaction) => {
+        const sessionSnapshot = await transaction.get(sessionRef);
+        const attendanceSnapshot = await transaction.get(attendanceRef);
+        if (!sessionSnapshot.exists() || sessionSnapshot.data().token !== token) {
+          throw new Error('QR_USED_OR_EXPIRED');
+        }
+        if (attendanceSnapshot.exists() && attendanceSnapshot.data().attended === true) {
+          throw new Error('MEMBER_ALREADY_PRESENT');
+        }
+        const member = (sessionSnapshot.data().members || []).find(
+          (item) => item.id === selectedMember.id,
+        );
+        if (!member) throw new Error('MEMBER_NOT_IN_SESSION');
+
+        transaction.set(attendanceRef, {
+          house_id: houseId,
+          date,
+          member_id: selectedMember.id,
+          member_name: member.full_name || member.holy_name || 'Thành viên',
+          attended: true,
+          status: 'present',
+          reason: '',
+          session_id: getSessionId(houseId, date),
+          session_token: token,
+          recorded_by: '',
+          updated_at: serverTimestamp(),
+        });
+        transaction.update(sessionRef, {
+          token: nextToken,
+          token_version: (sessionSnapshot.data().token_version || 0) + 1,
+          scan_count: (sessionSnapshot.data().scan_count || 0) + 1,
+          last_scanned_member_name: member.full_name || member.holy_name || 'Thành viên',
+          last_scanned_at: serverTimestamp(),
+        });
       });
       setCompleted(true);
     } catch (error) {
       console.error('Không thể ghi nhận điểm danh QR:', error);
-      const errorMessage = error?.code === 'functions/already-exists'
+      const errorMessage = error?.message === 'MEMBER_ALREADY_PRESENT'
         ? 'Tên này đã được điểm danh rồi.'
-        : error?.code === 'functions/not-found'
-          ? 'Không tìm thấy phiên QR. Vui lòng quét mã mới.'
-          : error?.code === 'functions/failed-precondition'
+        : error?.message === 'QR_USED_OR_EXPIRED'
             ? 'Mã QR vừa được sử dụng hoặc đã hết hạn. Vui lòng quét mã mới.'
             : 'Không thể ghi nhận điểm danh. Vui lòng thử lại.';
       message.error(errorMessage);

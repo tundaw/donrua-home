@@ -266,7 +266,20 @@ service cloud.firestore {
         );
       allow create: if canManageHouse(request.resource.data.house_id);
       allow update: if canManageHouse(resource.data.house_id)
-        && request.resource.data.house_id == resource.data.house_id;
+        && request.resource.data.house_id == resource.data.house_id
+        || (
+          resource.data.active == true
+          && request.time < resource.data.expires_at
+          && request.resource.data.house_id == resource.data.house_id
+          && request.resource.data.date == resource.data.date
+          && request.resource.data.active == true
+          && request.resource.data.token != resource.data.token
+          && request.resource.data.token_version == resource.data.token_version + 1
+          && request.resource.data.scan_count == resource.data.scan_count + 1
+          && request.resource.data.member_ids == resource.data.member_ids
+          && request.resource.data.members == resource.data.members
+          && request.resource.data.expires_at == resource.data.expires_at
+        );
       allow delete: if canManageHouse(resource.data.house_id);
     }
 
