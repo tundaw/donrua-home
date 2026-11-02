@@ -265,13 +265,13 @@ export default function ChurchAttendance() {
 
   const monthlyStats = useMemo(() => {
     const todayKey = dayjs().format('YYYY-MM-DD');
-    let closedMassDays = 0;
+    const closedMassDates = new Set();
     for (
       let date = selectedDate.startOf('month');
       date.format('YYYY-MM-DD') < todayKey && !date.isAfter(selectedDate.endOf('month'));
       date = date.add(1, 'day')
     ) {
-      if (date.day() !== 0) closedMassDays += 1;
+      if (date.day() !== 0) closedMassDates.add(date.format('YYYY-MM-DD'));
     }
 
     const recordsThisMonth = monthAttendance.filter(
@@ -287,24 +287,22 @@ export default function ChurchAttendance() {
     return members.map((member) => {
       const records = recordsByMember.get(member.id) || [];
       const presentDates = new Set(
-        records.filter((record) => record.attended === true).map((record) => record.date),
+        records
+          .filter((record) => record.attended === true && closedMassDates.has(record.date))
+          .map((record) => record.date),
       );
       const excusedDates = new Set(
-        records.filter((record) => record.status === 'absent_excused').map((record) => record.date),
-      );
-      const resolvedClosedDates = new Set(
         records
-          .filter((record) => (
-            record.date < todayKey
-            && (record.attended === true || record.status === 'absent_excused')
-          ))
+          .filter((record) => record.status === 'absent_excused' && closedMassDates.has(record.date))
           .map((record) => record.date),
       );
       return {
         ...member,
         presentCount: presentDates.size,
         excusedCount: excusedDates.size,
-        unexcusedCount: Math.max(0, closedMassDays - resolvedClosedDates.size),
+        unexcusedCount: [...closedMassDates]
+          .filter((date) => !presentDates.has(date) && !excusedDates.has(date))
+          .length,
       };
     });
   }, [members, monthAttendance, monthEndKey, monthStartKey, selectedDate]);
