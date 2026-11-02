@@ -288,21 +288,31 @@ export default function ChurchAttendance() {
       const records = recordsByMember.get(member.id) || [];
       const presentDates = new Set(
         records
-          .filter((record) => record.attended === true && closedMassDates.has(record.date))
+          .filter((record) => record.attended === true)
           .map((record) => record.date),
       );
       const excusedDates = new Set(
         records
-          .filter((record) => record.status === 'absent_excused' && closedMassDates.has(record.date))
+          .filter((record) => record.status === 'absent_excused')
+          .map((record) => record.date),
+      );
+      const unexcusedDates = new Set(
+        records
+          .filter((record) => record.status === 'absent_unexcused')
           .map((record) => record.date),
       );
       return {
         ...member,
         presentCount: presentDates.size,
         excusedCount: excusedDates.size,
-        unexcusedCount: [...closedMassDates]
-          .filter((date) => !presentDates.has(date) && !excusedDates.has(date))
-          .length,
+        unexcusedCount: new Set([
+          ...unexcusedDates,
+          ...[...closedMassDates].filter((date) => (
+            !presentDates.has(date)
+            && !excusedDates.has(date)
+            && !unexcusedDates.has(date)
+          )),
+        ]).size,
       };
     });
   }, [members, monthAttendance, monthEndKey, monthStartKey, selectedDate]);
