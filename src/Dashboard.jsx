@@ -12,6 +12,7 @@ import MealSchedule from './MealSchedule';
 import CleaningSchedule from './CleaningSchedule';
 import ChurchAttendance from './ChurchAttendance';
 import DataManagement from './DataManagement';
+import './Dashboard.css';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text } = Typography;
@@ -40,9 +41,12 @@ export default function Dashboard() {
   return (
     <Layout style={{ minHeight: '100vh', background: '#f9faf9' }}>
       {/* SIDER (THANH MENU BÊN TRÁI) */}
-      <Sider 
+      <Sider
+        className="dashboard__sider"
         theme="light" 
         width={260} 
+        breakpoint="lg"
+        collapsedWidth={0}
         style={{ borderRight: '1px solid #f0f0f0' }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
@@ -89,7 +93,7 @@ export default function Dashboard() {
 
       <Layout>
         {/* HEADER */}
-        <Header style={{ background: '#fff', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72, borderBottom: '1px solid #f0f0f0' }}>
+        <Header className="dashboard__header" style={{ background: '#fff', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72, borderBottom: '1px solid #f0f0f0' }}>
           <Breadcrumb separator="/">
             <Breadcrumb.Item style={{ color: '#888' }}>DONRUA HOME</Breadcrumb.Item>
             <Breadcrumb.Item style={{ fontWeight: 600, color: '#333' }}>
@@ -105,7 +109,7 @@ export default function Dashboard() {
         </Header>
 
         {/* NỘI DUNG CHÍNH (CONTENT) */}
-        <Content style={{ padding: '32px 48px', overflowY: 'auto' }}>
+        <Content className="dashboard__content" style={{ padding: '32px 48px', overflowY: 'auto' }}>
           {/* Màn hình 5: Quản lý thành viên */}
           {currentMenu === '5' && <ManageMembers />}
 

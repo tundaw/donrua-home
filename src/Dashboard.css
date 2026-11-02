@@ -1,0 +1,83 @@
+.dashboard__content {
+  min-width: 0;
+}
+
+.dashboard__content .ant-table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.dashboard__content .ant-card {
+  max-width: 100%;
+}
+
+@media (max-width: 991px) {
+  .dashboard__sider {
+    position: fixed !important;
+    z-index: 20;
+    height: 100vh;
+    box-shadow: 8px 0 24px rgba(23, 35, 29, 0.12);
+  }
+
+  .dashboard__header {
+    padding: 0 20px !important;
+  }
+
+  .dashboard__content {
+    padding: 24px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard__header {
+    height: 64px !important;
+    padding: 0 14px !important;
+  }
+
+  .dashboard__header .ant-breadcrumb {
+    max-width: calc(100vw - 110px);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .dashboard__header .ant-breadcrumb > ol {
+    flex-wrap: nowrap;
+  }
+
+  .dashboard__header .ant-space {
+    gap: 8px !important;
+  }
+
+  .dashboard__content {
+    padding: 16px 12px !important;
+  }
+
+  .dashboard__content .ant-card-body {
+    padding: 16px !important;
+  }
+
+  .dashboard__content .ant-table {
+    min-width: 620px;
+  }
+
+  .dashboard__content .ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+  }
+
+  .dashboard__content .ant-modal-content {
+    padding: 18px !important;
+  }
+
+  .dashboard__content .ant-picker,
+  .dashboard__content .ant-select,
+  .dashboard__content .ant-input,
+  .dashboard__content .ant-input-number {
+    max-width: 100%;
+  }
+
+  .dashboard__content .ant-btn {
+    white-space: normal;
+  }
+}
