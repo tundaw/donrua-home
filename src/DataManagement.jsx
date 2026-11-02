@@ -467,7 +467,30 @@ export default function DataManagement() {
               ? 'image/webp'
               : 'image/jpeg'
         );
-        await uploadBytes(screenshotRef, leaveScreenshot, { contentType });
+        const uploadTask = uploadBytesResumable(screenshotRef, leaveScreenshot, { contentType });
+        await new Promise((resolve, reject) => {
+          let timeoutTriggered = false;
+          const timeout = window.setTimeout(() => {
+            timeoutTriggered = true;
+            const timeoutError = new Error('Tải ảnh xác nhận vượt quá thời gian chờ.');
+            timeoutError.code = 'storage/retry-limit-exceeded';
+            reject(timeoutError);
+            uploadTask.cancel();
+          }, 120000);
+
+          uploadTask.on(
+            'state_changed',
+            () => {},
+            (error) => {
+              window.clearTimeout(timeout);
+              if (!timeoutTriggered) reject(error);
+            },
+            () => {
+              window.clearTimeout(timeout);
+              resolve();
+            },
+          );
+        });
         screenshotUrl = await getDownloadURL(screenshotRef);
       }
       const savedRecord = {
