@@ -252,7 +252,28 @@ service cloud.firestore {
 
     match /church_attendance/{attendanceId} {
       allow read: if sameHouse(resource.data.house_id);
-      allow create: if canManageHouse(request.resource.data.house_id);
+      allow create: if canManageHouse(request.resource.data.house_id)
+        || (
+          request.resource.data.keys().hasAll([
+            'house_id', 'date', 'member_id', 'member_name', 'attended',
+            'status', 'reason', 'session_id', 'session_token', 'recorded_by',
+            'updated_at'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'house_id', 'date', 'member_id', 'member_name', 'attended',
+            'status', 'reason', 'session_id', 'session_token', 'recorded_by',
+            'updated_at'
+          ])
+          && request.resource.data.attended == true
+          && request.resource.data.status == 'present'
+          && request.resource.data.recorded_by == ''
+          && get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.active == true
+          && get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.house_id == request.resource.data.house_id
+          && get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.date == request.resource.data.date
+          && get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.token == request.resource.data.session_token
+          && request.resource.data.member_id in get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.member_ids
+          && request.time < get(/databases/$(database)/documents/church_attendance_qr/$(request.resource.data.session_id)).data.expires_at
+        );
       allow update: if canManageHouse(resource.data.house_id)
         && request.resource.data.house_id == resource.data.house_id;
       allow delete: if canManageHouse(resource.data.house_id);
