@@ -372,7 +372,7 @@ export default function DataManagement() {
           timeoutError.code = 'storage/retry-limit-exceeded';
           reject(timeoutError);
           uploadTask.cancel();
-        }, 120000);
+        }, 30000);
 
         uploadTask.on(
           'state_changed',
@@ -451,64 +451,68 @@ export default function DataManagement() {
       updated_at: serverTimestamp(),
     };
     setSaving(true);
-    let uploadedScreenshotPath = '';
     try {
       const leaveRef = editingLeave
         ? doc(db, 'home_leaves', editingLeave.id)
         : doc(collection(db, 'home_leaves'));
-      let screenshotUrl = existingScreenshotUrl;
-      if (leaveScreenshot) {
-        uploadedScreenshotPath = `home-leave-evidence/${encodeURIComponent(houseId)}/${leaveRef.id}/${Date.now()}_${leaveScreenshot.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const screenshotRef = ref(storage, uploadedScreenshotPath);
-        const contentType = leaveScreenshot.type || (
-          /\.png$/i.test(leaveScreenshot.name)
-            ? 'image/png'
-            : /\.webp$/i.test(leaveScreenshot.name)
-              ? 'image/webp'
-              : 'image/jpeg'
-        );
-        const uploadTask = uploadBytesResumable(screenshotRef, leaveScreenshot, { contentType });
-        await new Promise((resolve, reject) => {
-          let timeoutTriggered = false;
-          const timeout = window.setTimeout(() => {
-            timeoutTriggered = true;
-            const timeoutError = new Error('Tải ảnh xác nhận vượt quá thời gian chờ.');
-            timeoutError.code = 'storage/retry-limit-exceeded';
-            reject(timeoutError);
-            uploadTask.cancel();
-          }, 120000);
-
-          uploadTask.on(
-            'state_changed',
-            () => {},
-            (error) => {
-              window.clearTimeout(timeout);
-              if (!timeoutTriggered) reject(error);
-            },
-            () => {
-              window.clearTimeout(timeout);
-              resolve();
-            },
-          );
-        });
-        screenshotUrl = await getDownloadURL(screenshotRef);
-      }
       const savedRecord = {
         ...record,
-        screenshot_url: screenshotUrl,
-        screenshot_path: leaveScreenshot
-          ? uploadedScreenshotPath
-          : editingLeave?.screenshot_path || '',
+        screenshot_url: existingScreenshotUrl,
+        screenshot_path: editingLeave?.screenshot_path || '',
         ...(editingLeave ? { destination: deleteField() } : { created_at: serverTimestamp() }),
       };
       if (editingLeave) await updateDoc(leaveRef, savedRecord);
       else await setDoc(leaveRef, savedRecord);
-      if (leaveScreenshot && editingLeave?.screenshot_path) {
-        try {
-          await deleteObject(ref(storage, editingLeave.screenshot_path));
-        } catch (cleanupError) {
-          console.error('Không thể xóa ảnh xác nhận cũ:', cleanupError);
-        }
+      message.success('Đã lưu lịch về quê.');
+      setLeaveModalOpen(false);
+      setEditingLeave(null);
+      setLeaveScreenshot(null);
+      setRemoveExistingScreenshot(false);
+      leaveForm.resetFields();
+      setSaving(false);
+
+      if (leaveScreenshot) {
+        const screenshotFile = leaveScreenshot;
+        const oldScreenshotPath = editingLeave?.screenshot_path;
+        void (async () => {
+          const screenshotPath = `home-leave-evidence/${encodeURIComponent(houseId)}/${leaveRef.id}/${Date.now()}_${screenshotFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+          try {
+            const screenshotRef = ref(storage, screenshotPath);
+            const contentType = screenshotFile.type || (
+              /\.png$/i.test(screenshotFile.name)
+                ? 'image/png'
+                : /\.webp$/i.test(screenshotFile.name)
+                  ? 'image/webp'
+                  : 'image/jpeg'
+            );
+            const uploadTask = uploadBytesResumable(screenshotRef, screenshotFile, { contentType });
+            await new Promise((resolve, reject) => {
+              const timeout = window.setTimeout(() => {
+                const timeoutError = new Error('Tải ảnh xác nhận vượt quá thời gian chờ.');
+                timeoutError.code = 'storage/retry-limit-exceeded';
+                reject(timeoutError);
+                uploadTask.cancel();
+              }, 30000);
+              uploadTask.on('state_changed', () => {}, (error) => {
+                window.clearTimeout(timeout);
+                reject(error);
+              }, () => {
+                window.clearTimeout(timeout);
+                resolve();
+              });
+            });
+            const screenshotUrl = await getDownloadURL(screenshotRef);
+            await updateDoc(leaveRef, {
+              screenshot_url: screenshotUrl,
+              screenshot_path: screenshotPath,
+            });
+            if (oldScreenshotPath) await deleteObject(ref(storage, oldScreenshotPath));
+            message.success('Đã nhận ảnh xác nhận.');
+          } catch (error) {
+            console.error('Không thể tải ảnh xác nhận lịch về quê:', error);
+            message.warning(`Lịch đã lưu nhưng ảnh chưa nhận được: ${getFirebaseSaveError(error, 'ảnh xác nhận')}`);
+          }
+        })();
       } else if (removeExistingScreenshot && editingLeave?.screenshot_path) {
         try {
           await deleteObject(ref(storage, editingLeave.screenshot_path));
@@ -516,22 +520,9 @@ export default function DataManagement() {
           console.error('Không thể xóa ảnh xác nhận cũ:', cleanupError);
         }
       }
-      message.success('Đã lưu lịch về quê.');
-      setLeaveModalOpen(false);
-      setEditingLeave(null);
-      setLeaveScreenshot(null);
-      setRemoveExistingScreenshot(false);
-      leaveForm.resetFields();
     } catch (error) {
-      if (uploadedScreenshotPath) {
-        try {
-          await deleteObject(ref(storage, uploadedScreenshotPath));
-        } catch (cleanupError) {
-          console.error('Không thể dọn ảnh đã tải lên nhưng chưa lưu được lịch:', cleanupError);
-        }
-      }
       console.error('Không thể lưu lịch về quê:', error);
-      message.error(getFirebaseSaveError(error, 'lịch về quê hoặc ảnh xác nhận'));
+      message.error(getFirebaseSaveError(error, 'lịch về quê'));
     } finally {
       setSaving(false);
     }

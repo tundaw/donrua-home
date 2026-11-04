@@ -148,7 +148,7 @@ export default function ChurchAttendance() {
         collection(db, 'home_leaves'),
         where('house_id', '==', houseId),
       );
-      const [membersSnapshot, attendanceSnapshot, monthlyAttendanceSnapshot, qrSnapshot, userSnapshot, homeLeavesSnapshot] = await Promise.all([
+      const [membersSnapshot, attendanceSnapshot, monthlyAttendanceSnapshot, userSnapshot, homeLeavesSnapshot] = await Promise.all([
         getDocs(query(collection(db, 'users'), where('house_id', '==', houseId))),
         getDocs(query(
           collection(db, 'church_attendance'),
@@ -156,7 +156,6 @@ export default function ChurchAttendance() {
           where('date', '==', dateKey),
         )),
         getDocs(monthlyAttendanceQuery),
-        getDoc(qrSessionRef),
         uid ? getDoc(doc(db, 'users', uid)) : Promise.resolve(null),
         getDocs(homeLeavesQuery),
       ]);
@@ -184,7 +183,6 @@ export default function ChurchAttendance() {
       setAttendance(nextAttendance);
       setMonthAttendance(nextMonthAttendance);
       setHomeLeaves(homeLeavesSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-      setQrSession(qrSnapshot.exists() ? qrSnapshot.data() : null);
       setCanManageQr(isQrAuthorizedRole(role));
     } catch (error) {
       console.error('Không thể tải điểm danh đi lễ:', error);
@@ -192,7 +190,7 @@ export default function ChurchAttendance() {
     } finally {
       setLoading(false);
     }
-  }, [currentUser.role, dateKey, houseId, monthEndKey, monthStartKey, qrSessionRef, storedRole]);
+  }, [currentUser.role, dateKey, houseId, monthEndKey, monthStartKey, storedRole]);
 
   useEffect(() => {
     fetchAttendance();
@@ -224,16 +222,20 @@ export default function ChurchAttendance() {
         message.error('Không thể cập nhật trạng thái điểm danh trực tiếp.');
       },
     );
-    const unsubscribeQr = onSnapshot(
-      qrSessionRef,
-      (snapshot) => {
-        setQrSession(snapshot.exists() ? snapshot.data() : null);
-      },
-      (error) => {
-        console.error('Không thể đồng bộ mã QR điểm danh:', error);
-        message.error('Không thể cập nhật mã QR trực tiếp.');
-      },
-    );
+    let unsubscribeQr = () => {};
+    if (isQrAuthorizedRole(storedRole)) {
+      unsubscribeQr = onSnapshot(
+        qrSessionRef,
+        (snapshot) => {
+          setQrSession(snapshot.exists() ? snapshot.data() : null);
+        },
+        (error) => {
+          console.error('Không thể đồng bộ mã QR điểm danh:', error);
+        },
+      );
+    } else {
+      setQrSession(null);
+    }
     const unsubscribeHomeLeaves = onSnapshot(
       query(collection(db, 'home_leaves'), where('house_id', '==', houseId)),
       (snapshot) => {
@@ -250,7 +252,7 @@ export default function ChurchAttendance() {
       unsubscribeQr();
       unsubscribeHomeLeaves();
     };
-  }, [dateKey, houseId, memberIdAliases, monthEndKey, monthStartKey, qrSessionRef]);
+  }, [dateKey, houseId, memberIdAliases, monthEndKey, monthStartKey, qrSessionRef, storedRole]);
 
   const presentCount = useMemo(
     () => members.filter((member) => attendance[member.id]?.attended === true).length,
@@ -331,7 +333,7 @@ export default function ChurchAttendance() {
         .forEach((leave) => {
           for (
             let leaveDate = dayjs(leave.departure_date);
-            !leaveDate.isAfter(dayjs(leave.return_date)) && leaveDate.format('YYYY-MM-DD') < todayKey;
+            !leaveDate.isAfter(dayjs(leave.return_date));
             leaveDate = leaveDate.add(1, 'day')
           ) {
             const leaveDateKey = leaveDate.format('YYYY-MM-DD');
@@ -533,14 +535,6 @@ export default function ChurchAttendance() {
           <Tag color="red">{`Vắng không phép: ${dailyCounts.unexcused}`}</Tag>
           <Tag>{`Chưa điểm danh: ${dailyCounts.pending}`}</Tag>
         </div>
-
-        <Alert
-          showIcon
-          type="info"
-          message="Điểm danh bằng điện thoại"
-          description="Trưởng nhà mở mã QR của ngày đã chọn. Người không quét trong ngày đã qua được tính vắng không phép; trưởng nhà có thể cập nhật thành vắng có phép kèm lý do."
-          className="church-attendance__notice"
-        />
 
         <div className="church-attendance__qr-action">
           {canManageQr ? (
